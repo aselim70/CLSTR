@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "873333354510",
+    "project_id": "clstr-794ed",
+    "storage_bucket": "clstr-794ed.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:873333354510:android:8823a97084cec3add34c5f",
+        "android_client_info": {
+          "package_name": "com.example.clstr_app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDazfYBuMssCC-wPJ12rROdAJcKLVlXeWc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
