@@ -3,19 +3,20 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'route_detail_page.dart';
 import 'app_theme.dart';
+import 'app_helpers.dart';
 
 class AfwijkingenPage extends StatefulWidget {
   final String rol;
+  final String bedrijfId;
   final List<String> toegewezenClusters;
-  const AfwijkingenPage({super.key, required this.rol, required this.toegewezenClusters});
+  const AfwijkingenPage({super.key, required this.rol, required this.bedrijfId, required this.toegewezenClusters});
 
   @override
   State<AfwijkingenPage> createState() => _AfwijkingenPageState();
 }
 
 class _AfwijkingenPageState extends State<AfwijkingenPage> {
-  Set<String>? _toegestaneDepotNamen;
-  bool _bezigMetToegangLaden = true;
+  DepotToegang? _toegang;
 
   @override
   void initState() {
@@ -24,38 +25,51 @@ class _AfwijkingenPageState extends State<AfwijkingenPage> {
   }
 
   Future<void> _laadToegestaneDepots() async {
-    if (widget.rol == 'admin') {
-      setState(() => _bezigMetToegangLaden = false);
-      return;
-    }
-    if (widget.toegewezenClusters.isEmpty) {
-      setState(() {
-        _toegestaneDepotNamen = <String>{};
-        _bezigMetToegangLaden = false;
-      });
-      return;
-    }
-    final snapshot = await FirebaseFirestore.instance
-        .collection('depots')
-        .where('clusterId', whereIn: widget.toegewezenClusters)
-        .get();
+    final toegang = await laadToegestaneDepotNamen(
+      rol: widget.rol,
+      bedrijfId: widget.bedrijfId,
+      toegewezenClusters: widget.toegewezenClusters,
+    );
     if (!mounted) return;
-    setState(() {
-      _toegestaneDepotNamen = snapshot.docs.map((d) => (d.data()['naam'] ?? '').toString()).toSet();
-      _bezigMetToegangLaden = false;
-    });
+    setState(() => _toegang = toegang);
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_bezigMetToegangLaden) {
+    final toegang = _toegang;
+    if (toegang == null) {
       return Scaffold(
         appBar: GradientAppBar(title: const Text('Afwijkingen')),
         body: const Center(child: AppLoader()),
       );
     }
+    if (!toegang.isGelukt) {
+      return Scaffold(
+        appBar: GradientAppBar(title: const Text('Afwijkingen')),
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text('Kan je depots niet ophalen:\n${toegang.fout}', textAlign: TextAlign.center),
+                const SizedBox(height: 16),
+                OutlinedButton(
+                  onPressed: () {
+                    setState(() => _toegang = null);
+                    _laadToegestaneDepots();
+                  },
+                  child: const Text('Opnieuw proberen'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
 
     final isAdmin = widget.rol == 'admin';
+    final clusterFilter = beperkVoorWhereIn(widget.toegewezenClusters);
 
     if (!isAdmin && widget.toegewezenClusters.isEmpty) {
       return Scaffold(
@@ -76,11 +90,15 @@ class _AfwijkingenPageState extends State<AfwijkingenPage> {
     // clusterId filteren, anders keurt Firestore de hele lijst-query af
     // zodra er een dagplanning van een ander cluster bij zit.
     final Stream<QuerySnapshot> dagStream = isAdmin
-        ? FirebaseFirestore.instance.collection('dagplanning').snapshots()
+        ? FirebaseFirestore.instance
+              .collection('dagplanning')
+              .where('bedrijfId', isEqualTo: widget.bedrijfId)
+              .snapshots()
         : FirebaseFirestore.instance
-            .collection('dagplanning')
-            .where('clusterId', whereIn: widget.toegewezenClusters)
-            .snapshots();
+              .collection('dagplanning')
+              .where('bedrijfId', isEqualTo: widget.bedrijfId)
+              .where('clusterId', whereIn: clusterFilter)
+              .snapshots();
 
     return Scaffold(
       appBar: GradientAppBar(title: const Text('Afwijkingen')),
@@ -94,20 +112,16 @@ class _AfwijkingenPageState extends State<AfwijkingenPage> {
             return const Center(child: AppLoader());
           }
 
-          final afwijkingen = snapshot.data!.docs.where((doc) {
-            final data = doc.data() as Map<String, dynamic>;
-            if (data['eindtijd'] != null) return false;
-            if (_toegestaneDepotNamen != null) {
-              final depotNaam = (data['depotNaam'] ?? '').toString();
-              if (!_toegestaneDepotNamen!.contains(depotNaam)) return false;
-            }
-            return true;
-          }).toList()
-            ..sort((a, b) {
-              final datumA = (a.data() as Map<String, dynamic>)['datum'] as String? ?? '';
-              final datumB = (b.data() as Map<String, dynamic>)['datum'] as String? ?? '';
-              return datumB.compareTo(datumA);
-            });
+          final afwijkingen =
+              snapshot.data!.docs.where((doc) {
+                final data = doc.data() as Map<String, dynamic>;
+                if (data['eindtijd'] != null) return false;
+                return toegang.magZien((data['depotNaam'] ?? '').toString());
+              }).toList()..sort((a, b) {
+                final datumA = (a.data() as Map<String, dynamic>)['datum'] as String? ?? '';
+                final datumB = (b.data() as Map<String, dynamic>)['datum'] as String? ?? '';
+                return datumB.compareTo(datumA);
+              });
 
           if (afwijkingen.isEmpty) {
             return const Center(
@@ -143,7 +157,9 @@ class _AfwijkingenPageState extends State<AfwijkingenPage> {
               final starttijd = data['starttijd'] ?? '-';
               final datumRaw = data['datum'] as String?;
               final geparsedDatum = datumRaw != null ? DateTime.tryParse(datumRaw) : null;
-              final datumWeergave = geparsedDatum != null ? DateFormat('dd-MM-yyyy').format(geparsedDatum) : (datumRaw ?? '-');
+              final datumWeergave = geparsedDatum != null
+                  ? DateFormat('dd-MM-yyyy').format(geparsedDatum)
+                  : (datumRaw ?? '-');
 
               return Card(
                 elevation: 0,
@@ -170,6 +186,7 @@ class _AfwijkingenPageState extends State<AfwijkingenPage> {
                           routeNaam: routeNaam,
                           depotNaam: depotNaam,
                           clusterId: routeClusterId,
+                          bedrijfId: widget.bedrijfId,
                           initieleDatum: geparsedDatum,
                         ),
                       ),

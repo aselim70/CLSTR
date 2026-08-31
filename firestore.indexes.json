@@ -1,0 +1,180 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "chauffeurs",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "bedrijfId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "naam",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "__name__",
+          "order": "ASCENDING"
+        }
+      ],
+      "density": "SPARSE_ALL"
+    },
+    {
+      "collectionGroup": "clusters",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "bedrijfId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "naam",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "__name__",
+          "order": "ASCENDING"
+        }
+      ],
+      "density": "SPARSE_ALL"
+    },
+    {
+      "collectionGroup": "dagplanning",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "bedrijfId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "clusterId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "datum",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "__name__",
+          "order": "ASCENDING"
+        }
+      ],
+      "density": "SPARSE_ALL"
+    },
+    {
+      "collectionGroup": "dagplanning",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "bedrijfId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "datum",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "__name__",
+          "order": "ASCENDING"
+        }
+      ],
+      "density": "SPARSE_ALL"
+    },
+    {
+      "collectionGroup": "dagplanning",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "clusterId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "datum",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "__name__",
+          "order": "ASCENDING"
+        }
+      ],
+      "density": "SPARSE_ALL"
+    },
+    {
+      "collectionGroup": "depots",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "bedrijfId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "clusterId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "__name__",
+          "order": "ASCENDING"
+        }
+      ],
+      "density": "SPARSE_ALL"
+    },
+    {
+      "collectionGroup": "depots",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "bedrijfId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "naam",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "__name__",
+          "order": "ASCENDING"
+        }
+      ],
+      "density": "SPARSE_ALL"
+    },
+    {
+      "collectionGroup": "routes",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "bedrijfId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "clusterId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "__name__",
+          "order": "ASCENDING"
+        }
+      ],
+      "density": "SPARSE_ALL"
+    },
+    {
+      "collectionGroup": "routes",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "bedrijfId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "naam",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "__name__",
+          "order": "ASCENDING"
+        }
+      ],
+      "density": "SPARSE_ALL"
+    }
+  ],
+  "fieldOverrides": []
+}

@@ -5,10 +5,21 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import 'app_theme.dart';
+import 'app_helpers.dart';
 
 const List<String> _maandNamen = [
-  'januari', 'februari', 'maart', 'april', 'mei', 'juni',
-  'juli', 'augustus', 'september', 'oktober', 'november', 'december',
+  'januari',
+  'februari',
+  'maart',
+  'april',
+  'mei',
+  'juni',
+  'juli',
+  'augustus',
+  'september',
+  'oktober',
+  'november',
+  'december',
 ];
 
 class _ChauffeurTotaal {
@@ -21,8 +32,9 @@ class _ChauffeurTotaal {
 
 class RapportagePage extends StatefulWidget {
   final String rol;
+  final String bedrijfId;
   final List<String> toegewezenClusters;
-  const RapportagePage({super.key, required this.rol, required this.toegewezenClusters});
+  const RapportagePage({super.key, required this.rol, required this.bedrijfId, required this.toegewezenClusters});
 
   @override
   State<RapportagePage> createState() => _RapportagePageState();
@@ -30,10 +42,9 @@ class RapportagePage extends StatefulWidget {
 
 class _RapportagePageState extends State<RapportagePage> {
   String _weergave = 'week';
-  DateTime _referentieDatum = DateTime.now();
+  DateTime _referentieDatum = alleenDatum(DateTime.now());
   Set<String>? _geselecteerd;
-  Set<String>? _toegestaneDepotNamen;
-  bool _bezigMetToegangLaden = true;
+  DepotToegang? _toegang;
 
   @override
   void initState() {
@@ -42,32 +53,15 @@ class _RapportagePageState extends State<RapportagePage> {
   }
 
   Future<void> _laadToegestaneDepots() async {
-    if (widget.rol == 'admin') {
-      setState(() => _bezigMetToegangLaden = false);
-      return;
-    }
-    if (widget.toegewezenClusters.isEmpty) {
-      setState(() {
-        _toegestaneDepotNamen = <String>{};
-        _bezigMetToegangLaden = false;
-      });
-      return;
-    }
-    final snapshot = await FirebaseFirestore.instance
-        .collection('depots')
-        .where('clusterId', whereIn: widget.toegewezenClusters)
-        .get();
+    final toegang = await laadToegestaneDepotNamen(
+      rol: widget.rol,
+      bedrijfId: widget.bedrijfId,
+      toegewezenClusters: widget.toegewezenClusters,
+    );
     if (!mounted) return;
-    setState(() {
-      _toegestaneDepotNamen = snapshot.docs.map((d) => (d.data()['naam'] ?? '').toString()).toSet();
-      _bezigMetToegangLaden = false;
-    });
+    setState(() => _toegang = toegang);
   }
 
-  String _dateKey(DateTime d) => DateFormat('yyyy-MM-dd').format(d);
-
-  DateTime _weekStart(DateTime d) => d.subtract(Duration(days: d.weekday - 1));
-  DateTime _weekEind(DateTime d) => _weekStart(d).add(const Duration(days: 6));
   DateTime _maandStart(DateTime d) => DateTime(d.year, d.month, 1);
   DateTime _maandEind(DateTime d) => DateTime(d.year, d.month + 1, 0);
 
@@ -75,7 +69,7 @@ class _RapportagePageState extends State<RapportagePage> {
     setState(() {
       _geselecteerd = null;
       if (_weergave == 'week') {
-        _referentieDatum = _referentieDatum.subtract(const Duration(days: 7));
+        _referentieDatum = plusDagen(_referentieDatum, -7);
       } else {
         _referentieDatum = DateTime(_referentieDatum.year, _referentieDatum.month - 1, 1);
       }
@@ -86,7 +80,7 @@ class _RapportagePageState extends State<RapportagePage> {
     setState(() {
       _geselecteerd = null;
       if (_weergave == 'week') {
-        _referentieDatum = _referentieDatum.add(const Duration(days: 7));
+        _referentieDatum = plusDagen(_referentieDatum, 7);
       } else {
         _referentieDatum = DateTime(_referentieDatum.year, _referentieDatum.month + 1, 1);
       }
@@ -95,8 +89,8 @@ class _RapportagePageState extends State<RapportagePage> {
 
   String _periodeLabel() {
     if (_weergave == 'week') {
-      final start = _weekStart(_referentieDatum);
-      final eind = _weekEind(_referentieDatum);
+      final start = weekStart(_referentieDatum);
+      final eind = weekEind(_referentieDatum);
       return 'Week van ${DateFormat('dd-MM-yyyy').format(start)} t/m ${DateFormat('dd-MM-yyyy').format(eind)}';
     } else {
       return '${_maandNamen[_referentieDatum.month - 1]} ${_referentieDatum.year}';
@@ -104,55 +98,103 @@ class _RapportagePageState extends State<RapportagePage> {
   }
 
   Future<void> _exporteerNaarPdf(Map<String, _ChauffeurTotaal> perChauffeur, List<String> geselecteerdeNamen) async {
-    final document = pw.Document();
+    final periodeLabel = _periodeLabel();
 
+    // MultiPage in plaats van Page: bij veel chauffeurs paste de tabel niet
+    // op één A4 en werd de rest van de lijst simpelweg afgekapt. MultiPage
+    // laat de tabel netjes doorlopen op een volgende pagina, met de
+    // kolomkoppen die zichzelf herhalen.
+    final document = pw.Document();
     document.addPage(
-      pw.Page(
+      pw.MultiPage(
         pageFormat: PdfPageFormat.a4,
         margin: const pw.EdgeInsets.all(32),
-        build: (context) {
-          return pw.Column(
-            crossAxisAlignment: pw.CrossAxisAlignment.start,
-            children: [
-              pw.Text('CLSTR — Rapportage', style: pw.TextStyle(fontSize: 20, fontWeight: pw.FontWeight.bold)),
-              pw.SizedBox(height: 4),
-              pw.Text(_periodeLabel(), style: const pw.TextStyle(fontSize: 14)),
-              pw.SizedBox(height: 20),
-              pw.Table.fromTextArray(
-                headers: ['Chauffeur', 'Ritten', 'Onvolledig', 'Totaal uren', 'Stops geladen', 'Stops geleverd'],
-                data: geselecteerdeNamen.map((naam) {
-                  final totaal = perChauffeur[naam]!;
-                  final uren = totaal.minuten ~/ 60;
-                  final minuten = totaal.minuten % 60;
-                  return [
-                    naam,
-                    totaal.ritten.toString(),
-                    totaal.onvolledig.toString(),
-                    '${uren}u ${minuten}m',
-                    totaal.stopsGeladen.toString(),
-                    totaal.stopsGeleverd.toString(),
-                  ];
-                }).toList(),
+        header: (context) => context.pageNumber == 1
+            ? pw.SizedBox()
+            : pw.Padding(
+                padding: const pw.EdgeInsets.only(bottom: 12),
+                child: pw.Text('CLSTR — Rapportage · $periodeLabel', style: const pw.TextStyle(fontSize: 10)),
               ),
-            ],
-          );
-        },
+        footer: (context) => pw.Align(
+          alignment: pw.Alignment.centerRight,
+          child: pw.Text(
+            'Pagina ${context.pageNumber} van ${context.pagesCount}',
+            style: const pw.TextStyle(fontSize: 9),
+          ),
+        ),
+        build: (context) => [
+          pw.Text('CLSTR — Rapportage', style: pw.TextStyle(fontSize: 20, fontWeight: pw.FontWeight.bold)),
+          pw.SizedBox(height: 4),
+          pw.Text(periodeLabel, style: const pw.TextStyle(fontSize: 14)),
+          pw.SizedBox(height: 20),
+          pw.TableHelper.fromTextArray(
+            headerCount: 1,
+            headers: ['Chauffeur', 'Ritten', 'Onvolledig', 'Totaal uren', 'Stops geladen', 'Stops geleverd'],
+            data: geselecteerdeNamen.map((naam) {
+              final totaal = perChauffeur[naam]!;
+              final uren = totaal.minuten ~/ 60;
+              final minuten = totaal.minuten % 60;
+              return [
+                naam,
+                totaal.ritten.toString(),
+                totaal.onvolledig.toString(),
+                '${uren}u ${minuten}m',
+                totaal.stopsGeladen.toString(),
+                totaal.stopsGeleverd.toString(),
+              ];
+            }).toList(),
+          ),
+        ],
       ),
     );
 
-    await Printing.layoutPdf(onLayout: (format) async => document.save());
+    // Zonder deze try/catch verdween een mislukte export (geen printer-
+    // service op het toestel, geen geheugen, ...) geruisloos in de console en
+    // leek de knop niets te doen.
+    try {
+      await Printing.layoutPdf(onLayout: (format) async => document.save());
+    } catch (fout) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Exporteren mislukt: $fout')));
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_bezigMetToegangLaden) {
+    final toegang = _toegang;
+    if (toegang == null) {
       return Scaffold(
         appBar: GradientAppBar(title: const Text('Rapportage')),
         body: const Center(child: AppLoader()),
       );
     }
+    if (!toegang.isGelukt) {
+      return Scaffold(
+        appBar: GradientAppBar(title: const Text('Rapportage')),
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text('Kan je depots niet ophalen:\n${toegang.fout}', textAlign: TextAlign.center),
+                const SizedBox(height: 16),
+                OutlinedButton(
+                  onPressed: () {
+                    setState(() => _toegang = null);
+                    _laadToegestaneDepots();
+                  },
+                  child: const Text('Opnieuw proberen'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
 
     final isAdmin = widget.rol == 'admin';
+    final clusterFilter = beperkVoorWhereIn(widget.toegewezenClusters);
 
     if (!isAdmin && widget.toegewezenClusters.isEmpty) {
       return Scaffold(
@@ -169,10 +211,10 @@ class _RapportagePageState extends State<RapportagePage> {
       );
     }
 
-    final periodeStart = _weergave == 'week' ? _weekStart(_referentieDatum) : _maandStart(_referentieDatum);
-    final periodeEind = _weergave == 'week' ? _weekEind(_referentieDatum) : _maandEind(_referentieDatum);
-    final startKey = _dateKey(periodeStart);
-    final eindKey = _dateKey(periodeEind);
+    final periodeStart = _weergave == 'week' ? weekStart(_referentieDatum) : _maandStart(_referentieDatum);
+    final periodeEind = _weergave == 'week' ? weekEind(_referentieDatum) : _maandEind(_referentieDatum);
+    final startKey = dateKey(periodeStart);
+    final eindKey = dateKey(periodeEind);
 
     // Net als bij Overzicht/Afwijkingen: voor een sub-account moet deze
     // query ook op clusterId filteren, anders keurt Firestore de hele
@@ -180,16 +222,18 @@ class _RapportagePageState extends State<RapportagePage> {
     // gekozen periode bij zit.
     final Stream<QuerySnapshot> dagStream = isAdmin
         ? FirebaseFirestore.instance
-            .collection('dagplanning')
-            .where('datum', isGreaterThanOrEqualTo: startKey)
-            .where('datum', isLessThanOrEqualTo: eindKey)
-            .snapshots()
+              .collection('dagplanning')
+              .where('bedrijfId', isEqualTo: widget.bedrijfId)
+              .where('datum', isGreaterThanOrEqualTo: startKey)
+              .where('datum', isLessThanOrEqualTo: eindKey)
+              .snapshots()
         : FirebaseFirestore.instance
-            .collection('dagplanning')
-            .where('datum', isGreaterThanOrEqualTo: startKey)
-            .where('datum', isLessThanOrEqualTo: eindKey)
-            .where('clusterId', whereIn: widget.toegewezenClusters)
-            .snapshots();
+              .collection('dagplanning')
+              .where('bedrijfId', isEqualTo: widget.bedrijfId)
+              .where('datum', isGreaterThanOrEqualTo: startKey)
+              .where('datum', isLessThanOrEqualTo: eindKey)
+              .where('clusterId', whereIn: clusterFilter)
+              .snapshots();
 
     return Scaffold(
       appBar: GradientAppBar(title: const Text('Rapportage')),
@@ -240,10 +284,7 @@ class _RapportagePageState extends State<RapportagePage> {
                 final perChauffeur = <String, _ChauffeurTotaal>{};
                 for (final doc in snapshot.data!.docs) {
                   final data = doc.data() as Map<String, dynamic>;
-                  if (_toegestaneDepotNamen != null) {
-                    final depotNaam = (data['depotNaam'] ?? '').toString();
-                    if (!_toegestaneDepotNamen!.contains(depotNaam)) continue;
-                  }
+                  if (!toegang.magZien((data['depotNaam'] ?? '').toString())) continue;
                   final naam = (data['chauffeurNaam'] as String?) ?? 'Onbekend';
                   final duur = data['duurMinuten'] as int?;
                   final stopsGeladen = data['stopsGeladen'] as int?;
@@ -265,7 +306,9 @@ class _RapportagePageState extends State<RapportagePage> {
                   return const Center(child: Text('Nog geen uren geregistreerd in deze periode.'));
                 }
 
-                final geselecteerdeNamen = namen.where((naam) => _geselecteerd == null || _geselecteerd!.contains(naam)).toList();
+                final geselecteerdeNamen = namen
+                    .where((naam) => _geselecteerd == null || _geselecteerd!.contains(naam))
+                    .toList();
 
                 return Column(
                   children: [
@@ -284,7 +327,10 @@ class _RapportagePageState extends State<RapportagePage> {
                             label: const Text('Alles deselecteren'),
                           ),
                           const Spacer(),
-                          Text('${geselecteerdeNamen.length}/${namen.length}', style: TextStyle(color: Colors.grey.shade600)),
+                          Text(
+                            '${geselecteerdeNamen.length}/${namen.length}',
+                            style: TextStyle(color: Colors.grey.shade600),
+                          ),
                           const SizedBox(width: 8),
                         ],
                       ),
@@ -320,7 +366,10 @@ class _RapportagePageState extends State<RapportagePage> {
                               '${totaal.onvolledig > 0 ? ' · ${totaal.onvolledig} onvolledig' : ''}'
                               '\n${totaal.stopsGeladen} geladen · ${totaal.stopsGeleverd} geleverd',
                             ),
-                            secondary: Text('${uren}u ${minuten}m', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                            secondary: Text(
+                              '${uren}u ${minuten}m',
+                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                            ),
                           );
                         },
                       ),
@@ -337,11 +386,7 @@ class _RapportagePageState extends State<RapportagePage> {
                                 : () => _exporteerNaarPdf(perChauffeur, geselecteerdeNamen),
                             child: const Row(
                               mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(Icons.print),
-                                SizedBox(width: 8),
-                                Text('Printen / PDF exporteren'),
-                              ],
+                              children: [Icon(Icons.print), SizedBox(width: 8), Text('Printen / PDF exporteren')],
                             ),
                           ),
                         ),

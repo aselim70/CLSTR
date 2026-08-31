@@ -1,18 +1,43 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'app_theme.dart';
 
 const Color _kNavy = Color(0xFF002169);
 const Color _kOrange = Color(0xFFFF8500);
 
-const List<Map<String, String>> _clusterOpties = [
-  {'id': 'cluster_1', 'naam': 'Cluster 1'},
-  {'id': 'cluster_2', 'naam': 'Cluster 2'},
-  {'id': 'cluster_3', 'naam': 'Cluster 3'},
-];
+/// Zet de foutcode van een Cloud Function-aanroep om naar een begrijpelijke
+/// Nederlandse melding. Cloud Functions geven altijd een `code` mee (zie
+/// functions/index.js) — hier vertalen we de bekende codes, met een
+/// nette terugval op de ruwe foutmelding voor onbekende gevallen.
+String _leesFoutmelding(Object fout) {
+  if (fout is FirebaseFunctionsException) {
+    switch (fout.code) {
+      case 'already-exists':
+        return 'Er bestaat al een account met dit e-mailadres.';
+      case 'invalid-argument':
+        return fout.message ?? 'Controleer de ingevulde gegevens.';
+      case 'permission-denied':
+        // De eigen melding van de functie is specifieker ("Alleen de
+        // superadmin kan een hoofdaccount wijzigen") dan een algemeen
+        // "geen rechten", dus die krijgt voorrang.
+        return fout.message ?? 'Je hebt geen rechten om dit te doen.';
+      case 'unauthenticated':
+        return 'Je bent niet (meer) ingelogd. Log opnieuw in en probeer het nogmaals.';
+      case 'failed-precondition':
+        return fout.message ?? 'Deze actie kan niet worden uitgevoerd.';
+      case 'unavailable':
+        return 'Geen verbinding. Controleer je internetverbinding en probeer het opnieuw.';
+      default:
+        return fout.message ?? 'Er ging iets mis (${fout.code}).';
+    }
+  }
+  return 'Er ging iets mis: $fout';
+}
 
 class GebruikersBeheerPage extends StatelessWidget {
-  const GebruikersBeheerPage({super.key});
+  final String bedrijfId;
+  const GebruikersBeheerPage({super.key, required this.bedrijfId});
 
   Future<void> _toonGebruikerDialoog(
     BuildContext context, {
@@ -20,122 +45,225 @@ class GebruikersBeheerPage extends StatelessWidget {
     String? huidigeRol,
     List<String>? huidigeClusters,
   }) async {
+    // Clusters van dit bedrijf ophalen voor de checkbox-lijst - niet meer
+    // hardcoded, want elk bedrijf heeft nu zijn eigen clusters.
+    List<Map<String, String>> clusterOpties;
+    try {
+      final clustersSnapshot = await FirebaseFirestore.instance
+          .collection('clusters')
+          .where('bedrijfId', isEqualTo: bedrijfId)
+          .orderBy('naam')
+          .get();
+      clusterOpties = clustersSnapshot.docs
+          .map((doc) => {'id': doc.id, 'naam': (doc.data()['naam'] ?? doc.id).toString()})
+          .toList();
+    } catch (fout) {
+      // Zonder deze try/catch gebeurde er letterlijk niets zichtbaars als
+      // deze opvraging faalde (bijv. door een ontbrekende Firestore-index) -
+      // de knop leek dan "kapot" terwijl er alleen een fout onderin verstopt
+      // zat. Nu tonen we in elk geval duidelijk wat er misging.
+      if (!context.mounted) return;
+      await showDialog(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Kan clusters niet ophalen'),
+          content: Text(
+            'Er ging iets mis bij het ophalen van de clusters:\n\n$fout\n\n'
+            'Controleer of de bijbehorende Firestore-index al is aangemaakt en de status "Enabled" heeft.',
+          ),
+          actions: [TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Sluiten'))],
+        ),
+      );
+      return;
+    }
+
     final emailController = TextEditingController(text: bestaandeEmail ?? '');
+    final wachtwoordController = TextEditingController();
     final formKey = GlobalKey<FormState>();
+    final nieuwAccount = bestaandeEmail == null;
     String rol = huidigeRol ?? 'subaccount';
     final geselecteerdeClusters = <String>{...?huidigeClusters};
+    bool wachtwoordZichtbaar = false;
+    bool bezigMetOpslaan = false;
+    String? foutmelding;
 
-    await showDialog(
-      context: context,
-      builder: (dialogContext) {
-        return StatefulBuilder(
-          builder: (dialogContext, setDialogState) {
-            return AlertDialog(
-              title: Text(bestaandeEmail == null ? 'Account koppelen' : 'Account bewerken'),
-              content: Form(
-                key: formKey,
-                child: SingleChildScrollView(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      TextFormField(
-                        controller: emailController,
-                        enabled: bestaandeEmail == null,
-                        keyboardType: TextInputType.emailAddress,
-                        decoration: const InputDecoration(labelText: 'E-mailadres (waarmee diegene inlogt)'),
-                        validator: (waarde) => (waarde == null || waarde.trim().isEmpty) ? 'Vul een e-mailadres in' : null,
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        'Let op: het account zelf (e-mail + wachtwoord) maak je apart aan via Firebase Console → Authentication. Hier koppel je alleen de rol en clusters.',
-                        style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-                      ),
-                      const SizedBox(height: 14),
-                      DropdownButtonFormField<String>(
-                        value: rol,
-                        isExpanded: true,
-                        decoration: const InputDecoration(labelText: 'Rol'),
-                        items: const [
-                          DropdownMenuItem(
-                            value: 'admin',
-                            child: Text('Hoofdaccount (ziet alle clusters)', overflow: TextOverflow.ellipsis),
-                          ),
-                          DropdownMenuItem(
-                            value: 'subaccount',
-                            child: Text('Sub-account (alleen gekoppelde clusters)', overflow: TextOverflow.ellipsis),
-                          ),
-                        ],
-                        onChanged: (waarde) {
-                          if (waarde != null) setDialogState(() => rol = waarde);
-                        },
-                      ),
-                      if (rol == 'subaccount') ...[
-                        const SizedBox(height: 14),
-                        const Text('Toegewezen clusters:', style: TextStyle(fontWeight: FontWeight.w600)),
-                        ..._clusterOpties.map((cluster) {
-                          final id = cluster['id']!;
-                          return CheckboxListTile(
-                            contentPadding: EdgeInsets.zero,
-                            controlAffinity: ListTileControlAffinity.leading,
-                            title: Text(cluster['naam']!),
-                            value: geselecteerdeClusters.contains(id),
-                            onChanged: (aangevinkt) {
-                              setDialogState(() {
-                                if (aangevinkt == true) {
-                                  geselecteerdeClusters.add(id);
-                                } else {
-                                  geselecteerdeClusters.remove(id);
-                                }
-                              });
-                            },
-                          );
-                        }),
-                      ],
-                    ],
-                  ),
-                ),
-              ),
-              actions: [
-                TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Annuleren')),
-                ElevatedButton(
-                  onPressed: () async {
-                    if (!formKey.currentState!.validate()) return;
+    if (!context.mounted) return;
+    try {
+      await showDialog(
+        context: context,
+        builder: (dialogContext) {
+          return StatefulBuilder(
+            builder: (dialogContext, setDialogState) {
+              Future<void> opslaan() async {
+                if (!formKey.currentState!.validate()) return;
+                setDialogState(() {
+                  bezigMetOpslaan = true;
+                  foutmelding = null;
+                });
+
+                try {
+                  if (nieuwAccount) {
                     final email = emailController.text.trim().toLowerCase();
-                    await FirebaseFirestore.instance.collection('gebruikers').doc(email).set({
+                    await FirebaseFunctions.instance.httpsCallable('maakAccountAan').call({
+                      'email': email,
+                      'wachtwoord': wachtwoordController.text,
+                      'rol': rol,
+                      'clusters': rol == 'admin' ? <String>[] : geselecteerdeClusters.toList(),
+                      'bedrijfId': bedrijfId,
+                    });
+                  } else {
+                    final email = bestaandeEmail;
+                    await FirebaseFunctions.instance.httpsCallable('bijwerkenAccount').call({
                       'email': email,
                       'rol': rol,
                       'clusters': rol == 'admin' ? <String>[] : geselecteerdeClusters.toList(),
                     });
-                    if (dialogContext.mounted) Navigator.pop(dialogContext);
-                  },
-                  child: const Text('Opslaan'),
+                  }
+                  if (dialogContext.mounted) Navigator.pop(dialogContext);
+                } catch (fout) {
+                  setDialogState(() {
+                    bezigMetOpslaan = false;
+                    foutmelding = _leesFoutmelding(fout);
+                  });
+                }
+              }
+
+              return AlertDialog(
+                title: Text(nieuwAccount ? 'Account aanmaken' : 'Account bewerken'),
+                content: Form(
+                  key: formKey,
+                  child: SingleChildScrollView(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        TextFormField(
+                          controller: emailController,
+                          enabled: nieuwAccount,
+                          keyboardType: TextInputType.emailAddress,
+                          decoration: const InputDecoration(labelText: 'E-mailadres (waarmee diegene inlogt)'),
+                          validator: (waarde) =>
+                              (waarde == null || waarde.trim().isEmpty) ? 'Vul een e-mailadres in' : null,
+                        ),
+                        if (nieuwAccount) ...[
+                          const SizedBox(height: 14),
+                          TextFormField(
+                            controller: wachtwoordController,
+                            obscureText: !wachtwoordZichtbaar,
+                            decoration: InputDecoration(
+                              labelText: 'Wachtwoord',
+                              helperText: 'Minstens 6 tekens. Geef dit door aan de persoon.',
+                              suffixIcon: IconButton(
+                                icon: Icon(wachtwoordZichtbaar ? Icons.visibility_off : Icons.visibility),
+                                onPressed: () => setDialogState(() => wachtwoordZichtbaar = !wachtwoordZichtbaar),
+                              ),
+                            ),
+                            validator: (waarde) {
+                              if (waarde == null || waarde.isEmpty) return 'Vul een wachtwoord in';
+                              if (waarde.length < 6) return 'Minstens 6 tekens';
+                              return null;
+                            },
+                          ),
+                        ],
+                        const SizedBox(height: 14),
+                        DropdownButtonFormField<String>(
+                          initialValue: rol,
+                          isExpanded: true,
+                          decoration: const InputDecoration(labelText: 'Rol'),
+                          items: const [
+                            DropdownMenuItem(
+                              value: 'admin',
+                              child: Text('Hoofdaccount (ziet alle clusters)', overflow: TextOverflow.ellipsis),
+                            ),
+                            DropdownMenuItem(
+                              value: 'subaccount',
+                              child: Text('Sub-account (alleen gekoppelde clusters)', overflow: TextOverflow.ellipsis),
+                            ),
+                          ],
+                          onChanged: (waarde) {
+                            if (waarde != null) setDialogState(() => rol = waarde);
+                          },
+                        ),
+                        if (rol == 'subaccount') ...[
+                          const SizedBox(height: 14),
+                          const Text('Toegewezen clusters:', style: TextStyle(fontWeight: FontWeight.w600)),
+                          if (clusterOpties.isEmpty)
+                            Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 8),
+                              child: Text(
+                                'Nog geen clusters aangemaakt. Maak er eerst één aan via "Bedrijf & clusters beheren".',
+                                style: TextStyle(color: Colors.grey.shade600, fontSize: 12.5),
+                              ),
+                            ),
+                          ...clusterOpties.map((cluster) {
+                            final id = cluster['id']!;
+                            return CheckboxListTile(
+                              contentPadding: EdgeInsets.zero,
+                              controlAffinity: ListTileControlAffinity.leading,
+                              title: Text(cluster['naam']!),
+                              value: geselecteerdeClusters.contains(id),
+                              onChanged: (aangevinkt) {
+                                setDialogState(() {
+                                  if (aangevinkt == true) {
+                                    geselecteerdeClusters.add(id);
+                                  } else {
+                                    geselecteerdeClusters.remove(id);
+                                  }
+                                });
+                              },
+                            );
+                          }),
+                        ],
+                        if (foutmelding != null) ...[
+                          const SizedBox(height: 14),
+                          Text(foutmelding!, style: const TextStyle(color: Colors.red, fontSize: 13)),
+                        ],
+                      ],
+                    ),
+                  ),
                 ),
-              ],
-            );
-          },
-        );
-      },
-    );
+                actions: [
+                  TextButton(
+                    onPressed: bezigMetOpslaan ? null : () => Navigator.pop(dialogContext),
+                    child: const Text('Annuleren'),
+                  ),
+                  ElevatedButton(
+                    onPressed: bezigMetOpslaan ? null : opslaan,
+                    child: bezigMetOpslaan
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                          )
+                        : const Text('Opslaan'),
+                  ),
+                ],
+              );
+            },
+          );
+        },
+      );
+    } finally {
+      emailController.dispose();
+      wachtwoordController.dispose();
+    }
   }
 
-  /// Eenmalige migratie: voegt het juiste `clusterId` toe aan alle bestaande
-  /// `routes`- en `dagplanning`-documenten, op basis van hun depot. Dit is
-  /// nodig voordat de Firestore Security Rules aangezet kunnen worden — die
-  /// rules moeten per document snel kunnen zien bij welk cluster het hoort.
-  /// Mag gerust meerdere keren uitgevoerd worden, dat is onschadelijk.
-  Future<void> _voerMigratieUit(BuildContext context) async {
+  Future<void> _bevestigVerwijderen(BuildContext context, String email) async {
     final bevestigd = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Cluster-ID migratie uitvoeren?'),
-        content: const Text(
-          'Dit voegt het cluster-ID toe aan alle bestaande routes en dagplanningen, op basis van hun depot. '
-          'Dit is een eenmalige voorbereiding voor de beveiligingsregels. Je kunt dit gerust meerdere keren uitvoeren, dat doet geen kwaad.',
+        title: const Text('Account verwijderen?'),
+        content: Text(
+          'Weet je zeker dat je "$email" wilt verwijderen? De inlog wordt volledig verwijderd — dit account kan dan niet meer inloggen in de app.',
         ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Annuleren')),
-          ElevatedButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Uitvoeren')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Verwijderen'),
+          ),
         ],
       ),
     );
@@ -149,94 +277,26 @@ class GebruikersBeheerPage extends StatelessWidget {
           children: [
             AppLoader(),
             SizedBox(width: 16),
-            Expanded(child: Text('Bezig met migreren...')),
+            Expanded(child: Text('Bezig met verwijderen...')),
           ],
         ),
       ),
     );
 
-    final depotsSnapshot = await FirebaseFirestore.instance.collection('depots').get();
-    final depotNaarCluster = <String, String>{};
-    for (final doc in depotsSnapshot.docs) {
-      final data = doc.data();
-      final naam = data['naam']?.toString();
-      final clusterId = data['clusterId']?.toString();
-      if (naam != null && clusterId != null) depotNaarCluster[naam] = clusterId;
-    }
-
-    int routesBijgewerkt = 0;
-    int dagplanningBijgewerkt = 0;
-    int nietGevonden = 0;
-
-    var batch = FirebaseFirestore.instance.batch();
-    int teller = 0;
-
-    Future<void> voegToeAanBatch(DocumentReference ref, String? depotNaam, void Function() opTeller) async {
-      final clusterId = depotNaarCluster[depotNaam];
-      if (clusterId == null) {
-        nietGevonden++;
-        return;
-      }
-      batch.update(ref, {'clusterId': clusterId});
-      opTeller();
-      teller++;
-      if (teller >= 400) {
-        await batch.commit();
-        batch = FirebaseFirestore.instance.batch();
-        teller = 0;
-      }
-    }
-
-    final routesSnapshot = await FirebaseFirestore.instance.collection('routes').get();
-    for (final doc in routesSnapshot.docs) {
-      await voegToeAanBatch(doc.reference, doc.data()['depotNaam']?.toString(), () => routesBijgewerkt++);
-    }
-
-    final dagplanningSnapshot = await FirebaseFirestore.instance.collection('dagplanning').get();
-    for (final doc in dagplanningSnapshot.docs) {
-      await voegToeAanBatch(doc.reference, doc.data()['depotNaam']?.toString(), () => dagplanningBijgewerkt++);
-    }
-
-    if (teller > 0) {
-      await batch.commit();
-    }
-
-    if (!context.mounted) return;
-    Navigator.pop(context); // sluit de laad-dialoog
-
-    showDialog(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Migratie voltooid'),
-        content: Text(
-          '$routesBijgewerkt routes en $dagplanningBijgewerkt dagplanningen bijgewerkt met een cluster-ID.'
-          '${nietGevonden > 0 ? '\n\n$nietGevonden documenten konden niet gekoppeld worden (depot niet gevonden, bijv. omdat het depot inmiddels verwijderd is) — controleer deze zo nodig handmatig.' : ''}',
+    try {
+      await FirebaseFunctions.instance.httpsCallable('verwijderAccount').call({'email': email});
+      if (context.mounted) Navigator.pop(context); // sluit de laad-dialoog
+    } catch (fout) {
+      if (!context.mounted) return;
+      Navigator.pop(context); // sluit de laad-dialoog
+      await showDialog(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Verwijderen mislukt'),
+          content: Text(_leesFoutmelding(fout)),
+          actions: [TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Sluiten'))],
         ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Sluiten')),
-        ],
-      ),
-    );
-  }
-
-  Future<void> _bevestigVerwijderen(BuildContext context, String email) async {
-    final bevestigd = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Toegang intrekken?'),
-        content: Text('Weet je zeker dat je de toegang van "$email" wilt intrekken? Dit account kan dan niet meer inloggen in de app.'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Annuleren')),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-            onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text('Intrekken'),
-          ),
-        ],
-      ),
-    );
-    if (bevestigd == true) {
-      await FirebaseFirestore.instance.collection('gebruikers').doc(email).delete();
+      );
     }
   }
 
@@ -248,80 +308,97 @@ class GebruikersBeheerPage extends StatelessWidget {
         children: [
           Container(
             width: double.infinity,
-            color: _kOrange.withOpacity(0.12),
+            color: _kOrange.withValues(alpha: 0.12),
             padding: const EdgeInsets.all(12),
             child: const Text(
-              'Nieuw account? Maak eerst de inlog (e-mail + wachtwoord) aan via Firebase Console → Authentication. Koppel hier daarna de rol en clusters.',
+              'Nieuwe accounts maak je hieronder direct aan (inlog + rol + clusters in één keer) — dit hoeft niet meer apart via Firebase Console.',
               style: TextStyle(fontSize: 12.5),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
-            child: OutlinedButton.icon(
-              onPressed: () => _voerMigratieUit(context),
-              icon: const Icon(Icons.sync),
-              label: const Text('Eenmalige migratie: cluster-ID toevoegen aan routes/dagplanning'),
             ),
           ),
           Expanded(
             child: StreamBuilder<QuerySnapshot>(
-              stream: FirebaseFirestore.instance.collection('gebruikers').snapshots(),
-              builder: (context, snapshot) {
-                if (!snapshot.hasData) return const Center(child: AppLoader());
-                final docs = snapshot.data!.docs.toList()..sort((a, b) => a.id.compareTo(b.id));
-                if (docs.isEmpty) {
-                  return const Center(child: Text('Nog geen accounts gekoppeld.'));
-                }
-                return ListView.separated(
-                  padding: const EdgeInsets.all(12),
-                  itemCount: docs.length,
-                  separatorBuilder: (context, index) => const SizedBox(height: 10),
-                  itemBuilder: (context, index) {
-                    final doc = docs[index];
-                    final data = doc.data() as Map<String, dynamic>;
-                    final email = doc.id;
-                    final rol = (data['rol'] as String?) ?? 'subaccount';
-                    final clusters = (data['clusters'] as List<dynamic>?)?.map((c) => c.toString()).toList() ?? [];
-                    final clusterNamen = clusters
-                        .map((id) => _clusterOpties.firstWhere(
-                              (c) => c['id'] == id,
-                              orElse: () => {'naam': id},
-                            )['naam'])
-                        .join(', ');
-                    return Card(
-                      elevation: 0,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14), side: BorderSide(color: Colors.grey.shade300)),
-                      child: ListTile(
-                        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-                        leading: CircleAvatar(
-                          backgroundColor: rol == 'admin' ? _kNavy : _kOrange,
-                          child: Icon(rol == 'admin' ? Icons.shield : Icons.person, color: Colors.white, size: 20),
+              // Clusters van dit bedrijf ophalen om ID's in de lijst hieronder
+              // naar leesbare namen te vertalen (niet meer hardcoded).
+              stream: FirebaseFirestore.instance
+                  .collection('clusters')
+                  .where('bedrijfId', isEqualTo: bedrijfId)
+                  .snapshots(),
+              builder: (context, clustersSnapshot) {
+                final clusterNaamPerId = <String, String>{
+                  for (final doc in clustersSnapshot.data?.docs ?? <QueryDocumentSnapshot>[])
+                    doc.id: ((doc.data() as Map<String, dynamic>)['naam'] ?? doc.id).toString(),
+                };
+                return StreamBuilder<QuerySnapshot>(
+                  stream: FirebaseFirestore.instance
+                      .collection('gebruikers')
+                      .where('bedrijfId', isEqualTo: bedrijfId)
+                      .snapshots(),
+                  builder: (context, snapshot) {
+                    // Zonder hasError-tak bleef dit scherm eeuwig laden als de
+                    // opvraging faalde in plaats van uit te leggen waarom.
+                    if (snapshot.hasError) {
+                      return Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(24),
+                          child: Text('Kan accounts niet laden:\n${snapshot.error}', textAlign: TextAlign.center),
                         ),
-                        title: Text(email, style: const TextStyle(fontWeight: FontWeight.bold)),
-                        subtitle: Text(
-                          rol == 'admin'
-                              ? 'Hoofdaccount — ziet alle clusters'
-                              : (clusterNamen.isEmpty ? 'Nog geen cluster toegewezen' : clusterNamen),
-                        ),
-                        trailing: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            IconButton(
-                              icon: const Icon(Icons.edit_outlined),
-                              onPressed: () => _toonGebruikerDialoog(
-                                context,
-                                bestaandeEmail: email,
-                                huidigeRol: rol,
-                                huidigeClusters: clusters,
-                              ),
+                      );
+                    }
+                    if (!snapshot.hasData) return const Center(child: AppLoader());
+                    final docs = snapshot.data!.docs.toList()..sort((a, b) => a.id.compareTo(b.id));
+                    if (docs.isEmpty) {
+                      return const Center(child: Text('Nog geen accounts gekoppeld.'));
+                    }
+                    return ListView.separated(
+                      padding: const EdgeInsets.all(12),
+                      itemCount: docs.length,
+                      separatorBuilder: (context, index) => const SizedBox(height: 10),
+                      itemBuilder: (context, index) {
+                        final doc = docs[index];
+                        final data = doc.data() as Map<String, dynamic>;
+                        final email = doc.id;
+                        final rol = (data['rol'] as String?) ?? 'subaccount';
+                        final clusters = (data['clusters'] as List<dynamic>?)?.map((c) => c.toString()).toList() ?? [];
+                        final clusterNamen = clusters.map((id) => clusterNaamPerId[id] ?? id).join(', ');
+                        return Card(
+                          elevation: 0,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14),
+                            side: BorderSide(color: Colors.grey.shade300),
+                          ),
+                          child: ListTile(
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                            leading: CircleAvatar(
+                              backgroundColor: rol == 'admin' ? _kNavy : _kOrange,
+                              child: Icon(rol == 'admin' ? Icons.shield : Icons.person, color: Colors.white, size: 20),
                             ),
-                            IconButton(
-                              icon: const Icon(Icons.delete_outline),
-                              onPressed: () => _bevestigVerwijderen(context, email),
+                            title: Text(email, style: const TextStyle(fontWeight: FontWeight.bold)),
+                            subtitle: Text(
+                              rol == 'admin'
+                                  ? 'Hoofdaccount — ziet alle clusters'
+                                  : (clusterNamen.isEmpty ? 'Nog geen cluster toegewezen' : clusterNamen),
                             ),
-                          ],
-                        ),
-                      ),
+                            trailing: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                IconButton(
+                                  icon: const Icon(Icons.edit_outlined),
+                                  onPressed: () => _toonGebruikerDialoog(
+                                    context,
+                                    bestaandeEmail: email,
+                                    huidigeRol: rol,
+                                    huidigeClusters: clusters,
+                                  ),
+                                ),
+                                IconButton(
+                                  icon: const Icon(Icons.delete_outline),
+                                  onPressed: () => _bevestigVerwijderen(context, email),
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      },
                     );
                   },
                 );

@@ -19,7 +19,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 version: 1.0.0+1
 
 environment:
-  sdk: ^3.13.0
+  sdk: '>=3.9.0 <4.0.0'
 
 # Dependencies specify other packages that your package needs in order to work.
 # To automatically upgrade your package dependencies to the latest versions
@@ -31,16 +31,14 @@ dependencies:
   flutter:
     sdk: flutter
 
-  # The following adds the Cupertino Icons font to your application.
-  # Use with the CupertinoIcons class for iOS style icons.
+  cloud_functions: 6.4.0
   cupertino_icons: ^1.0.8
-  firebase_core: ^4.13.0
-  firebase_auth: ^6.5.7
-  cloud_firestore: ^6.8.0
+  firebase_core: 4.14.0
+  firebase_auth: 6.6.1
+  cloud_firestore: 6.9.0
   intl: ^0.20.3
   pdf: ^3.13.0
   printing: ^5.15.0
-
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -95,17 +93,25 @@ flutter:
   # For details regarding fonts from package dependencies,
   # see https://flutter.dev/to/font-from-package
 
+# Let op: de bronafbeeldingen hieronder staan bewust in tool/icons/ en NIET in
+# assets/images/. Ze zijn alleen nodig op het moment dat je de iconen/splash
+# genereert (`dart run flutter_launcher_icons`), niet als de app draait. Omdat
+# hierboven de hele map assets/images/ als asset is opgegeven, belandde alles
+# wat daarin staat ook in de APK - deze twee bestanden waren samen ~1,2 MB die
+# de gebruiker meedownloadde zonder dat de app ze ooit opende.
 flutter_launcher_icons:
   android: true
   ios: true
-  image_path: "assets/images/app_icon_bron.png"
+  image_path: "tool/icons/app_icon_bron.png"
   adaptive_icon_background: "#14213D"
-  adaptive_icon_foreground: "assets/images/app_icon_voorgrond.png"
+  adaptive_icon_foreground: "tool/icons/app_icon_voorgrond.png"
 
 flutter_native_splash:
   color: "#002169"
+  # clstr_logo.png blijft wel in assets/images/: dat wordt tijdens het draaien
+  # getoond op het opstartscherm en in het menu.
   image: "assets/images/clstr_logo.png"
   android_12:
     color: "#002169"
-    image: "assets/images/app_icon_voorgrond.png"
+    image: "tool/icons/app_icon_voorgrond.png"
     icon_background_color: "#002169"

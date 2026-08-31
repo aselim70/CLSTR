@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'route_detail_page.dart';
 import 'app_theme.dart';
+import 'app_helpers.dart';
 
 const Color _kNavy = Color(0xFF002169);
 const Color _kOrange = Color(0xFFFF8500);
@@ -9,59 +10,78 @@ const Color _kOrange = Color(0xFFFF8500);
 class RouteListPage extends StatelessWidget {
   final String depotNaam;
   final String clusterId;
+  final String bedrijfId;
   final bool bewerkbaar;
 
-  const RouteListPage({super.key, required this.depotNaam, required this.clusterId, this.bewerkbaar = false});
+  const RouteListPage({
+    super.key,
+    required this.depotNaam,
+    required this.clusterId,
+    required this.bedrijfId,
+    this.bewerkbaar = false,
+  });
 
   Future<void> _toonRouteDialoog(BuildContext context) async {
     final ritnummerController = TextEditingController();
     final naamController = TextEditingController();
     final formKey = GlobalKey<FormState>();
 
-    await showDialog(
-      context: context,
-      builder: (dialogContext) {
-        return AlertDialog(
-          title: const Text('Route toevoegen'),
-          content: Form(
-            key: formKey,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextFormField(
-                  controller: ritnummerController,
-                  decoration: const InputDecoration(labelText: 'Ritnummer (bijv. 622)'),
-                  keyboardType: TextInputType.number,
-                  validator: (waarde) => (waarde == null || waarde.trim().isEmpty) ? 'Vul een ritnummer in' : null,
-                ),
-                const SizedBox(height: 12),
-                TextFormField(
-                  controller: naamController,
-                  decoration: const InputDecoration(labelText: 'Naam (bijv. 622 RSD Westrand)'),
-                  validator: (waarde) => (waarde == null || waarde.trim().isEmpty) ? 'Vul een naam in' : null,
-                ),
-              ],
+    try {
+      await showDialog(
+        context: context,
+        builder: (dialogContext) {
+          return AlertDialog(
+            title: const Text('Route toevoegen'),
+            content: Form(
+              key: formKey,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextFormField(
+                    controller: ritnummerController,
+                    decoration: const InputDecoration(labelText: 'Ritnummer (bijv. 622)'),
+                    keyboardType: TextInputType.number,
+                    validator: (waarde) => (waarde == null || waarde.trim().isEmpty) ? 'Vul een ritnummer in' : null,
+                  ),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    controller: naamController,
+                    decoration: const InputDecoration(labelText: 'Naam (bijv. 622 RSD Westrand)'),
+                    validator: (waarde) => (waarde == null || waarde.trim().isEmpty) ? 'Vul een naam in' : null,
+                  ),
+                ],
+              ),
             ),
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Annuleren')),
-            ElevatedButton(
-              onPressed: () async {
-                if (!formKey.currentState!.validate()) return;
-                await FirebaseFirestore.instance.collection('routes').add({
-                  'ritnummer': ritnummerController.text.trim(),
-                  'naam': naamController.text.trim(),
-                  'depotNaam': depotNaam,
-                  'clusterId': clusterId,
-                });
-                if (dialogContext.mounted) Navigator.pop(dialogContext);
-              },
-              child: const Text('Opslaan'),
-            ),
-          ],
-        );
-      },
-    );
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Annuleren')),
+              ElevatedButton(
+                onPressed: () async {
+                  if (!formKey.currentState!.validate()) return;
+                  final ritnummer = ritnummerController.text.trim();
+                  final naam = naamController.text.trim();
+                  final gelukt = await probeerSchrijfactie(context, 'Route toevoegen', () async {
+                    await FirebaseFirestore.instance.collection('routes').add({
+                      'ritnummer': ritnummer,
+                      'naam': naam,
+                      'depotNaam': depotNaam,
+                      'clusterId': clusterId,
+                      'bedrijfId': bedrijfId,
+                    });
+                  });
+                  if (gelukt && dialogContext.mounted) Navigator.pop(dialogContext);
+                },
+                child: const Text('Opslaan'),
+              ),
+            ],
+          );
+        },
+      );
+    } finally {
+      // Zonder deze dispose() lekt er per geopend dialoogvenster een paar
+      // TextEditingControllers dat nooit meer wordt opgeruimd.
+      ritnummerController.dispose();
+      naamController.dispose();
+    }
   }
 
   Future<void> _bevestigRouteVerwijderen(BuildContext context, String docId, String naam) async {
@@ -82,9 +102,10 @@ class RouteListPage extends StatelessWidget {
         ],
       ),
     );
-    if (bevestigd == true) {
+    if (bevestigd != true || !context.mounted) return;
+    await probeerSchrijfactie(context, 'Route verwijderen', () async {
       await FirebaseFirestore.instance.collection('routes').doc(docId).delete();
-    }
+    });
   }
 
   @override
@@ -107,6 +128,7 @@ class RouteListPage extends StatelessWidget {
           // ook al zou de data zelf wel kloppen.
           stream: FirebaseFirestore.instance
               .collection('routes')
+              .where('bedrijfId', isEqualTo: bedrijfId)
               .where('depotNaam', isEqualTo: depotNaam)
               .where('clusterId', isEqualTo: clusterId)
               .snapshots(),
@@ -143,6 +165,7 @@ class RouteListPage extends StatelessWidget {
                             routeNaam: naam,
                             depotNaam: depotNaam,
                             clusterId: clusterId,
+                            bedrijfId: bedrijfId,
                           ),
                         ),
                       );
@@ -156,10 +179,7 @@ class RouteListPage extends StatelessWidget {
         ),
       ),
       floatingActionButton: bewerkbaar
-          ? FloatingActionButton(
-              onPressed: () => _toonRouteDialoog(context),
-              child: const Icon(Icons.add),
-            )
+          ? FloatingActionButton(onPressed: () => _toonRouteDialoog(context), child: const Icon(Icons.add))
           : null,
     );
   }
@@ -186,7 +206,7 @@ class _RouteKaart extends StatelessWidget {
       color: Colors.white,
       borderRadius: BorderRadius.circular(16),
       elevation: 2,
-      shadowColor: Colors.black.withOpacity(0.15),
+      shadowColor: Colors.black.withValues(alpha: 0.15),
       child: InkWell(
         borderRadius: BorderRadius.circular(16),
         onTap: onTap,
@@ -198,7 +218,7 @@ class _RouteKaart extends StatelessWidget {
                 width: 44,
                 height: 44,
                 decoration: BoxDecoration(
-                  color: _kNavy.withOpacity(0.08),
+                  color: _kNavy.withValues(alpha: 0.08),
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: const Icon(Icons.alt_route_rounded, color: _kNavy, size: 22),
@@ -210,19 +230,12 @@ class _RouteKaart extends StatelessWidget {
                   children: [
                     Text(
                       naam,
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                        color: _kNavy,
-                      ),
+                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: _kNavy),
                     ),
                     if (ritnummer != null && ritnummer!.isNotEmpty)
                       Padding(
                         padding: const EdgeInsets.only(top: 2),
-                        child: Text(
-                          'Rit $ritnummer',
-                          style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
-                        ),
+                        child: Text('Rit $ritnummer', style: TextStyle(fontSize: 13, color: Colors.grey.shade600)),
                       ),
                   ],
                 ),
@@ -234,10 +247,7 @@ class _RouteKaart extends StatelessWidget {
                 ),
               Container(
                 padding: const EdgeInsets.all(6),
-                decoration: BoxDecoration(
-                  color: _kOrange.withOpacity(0.12),
-                  shape: BoxShape.circle,
-                ),
+                decoration: BoxDecoration(color: _kOrange.withValues(alpha: 0.12), shape: BoxShape.circle),
                 child: const Icon(Icons.chevron_right, color: _kOrange, size: 20),
               ),
             ],

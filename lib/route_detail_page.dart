@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
 import 'app_theme.dart';
+import 'app_helpers.dart';
 
 const List<String> _dagAfkortingen = ['Ma', 'Di', 'Wo', 'Do', 'Vr', 'Za', 'Zo'];
 
@@ -17,12 +18,14 @@ class RouteDetailPage extends StatefulWidget {
   // depotnaam i.p.v. clusterId) zou door de security rules vooraf geweigerd
   // worden voor sub-accounts.
   final String? clusterId;
+  final String bedrijfId;
   final DateTime? initieleDatum;
   const RouteDetailPage({
     super.key,
     required this.routeNaam,
     required this.depotNaam,
     required this.clusterId,
+    required this.bedrijfId,
     this.initieleDatum,
   });
   @override
@@ -42,13 +45,14 @@ class _RouteDetailPageState extends State<RouteDetailPage> {
   final TextEditingController _stopsGeleverdController = TextEditingController();
   bool _bezigMetOpslaan = false;
   bool _bezigMetLaden = true;
+  String? _laadFout;
   String? _dagplanningDocId;
 
   @override
   void initState() {
     super.initState();
-    _datum = widget.initieleDatum ?? DateTime.now();
-    _weekDagen = _berekenWeekDagen(_datum);
+    _datum = alleenDatum(widget.initieleDatum ?? DateTime.now());
+    _weekDagen = weekDagen(_datum);
     _laadWeekData();
   }
 
@@ -59,12 +63,38 @@ class _RouteDetailPageState extends State<RouteDetailPage> {
     super.dispose();
   }
 
-  String _dateKey(DateTime d) => DateFormat('yyyy-MM-dd').format(d);
-
-  List<DateTime> _berekenWeekDagen(DateTime datum) {
-    final maandag = datum.subtract(Duration(days: datum.weekday - 1));
-    return List.generate(7, (i) => DateTime(maandag.year, maandag.month, maandag.day + i));
+  /// Zelfde nette, afgeronde veldstijl als bij Overzicht (Depot/Route) -
+  /// witte achtergrond met dun grijs randje, navy als je erin tikt.
+  InputDecoration _nettDecoration(String label, {Widget? suffixIcon}) {
+    return InputDecoration(
+      labelText: label,
+      isDense: true,
+      filled: true,
+      fillColor: Colors.white,
+      suffixIcon: suffixIcon,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide(color: Colors.grey.shade300),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide(color: Colors.grey.shade300),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: const BorderSide(color: kBlauwBoven, width: 1.5),
+      ),
+    );
   }
+
+  /// Tijden worden als 'HH:mm' in Firestore opgeslagen. Bewust niet via
+  /// TimeOfDay.format(context): dat volgt de landinstelling van het toestel en
+  /// kan er dan '9:30 AM' van maken, wat [_parseTijd] hieronder niet meer
+  /// terug kan lezen. Opgeslagen data moet niet van de telefoon-instellingen
+  /// van degene die het invulde afhangen.
+  static String _tijdNaarTekst(TimeOfDay tijd) =>
+      '${tijd.hour.toString().padLeft(2, '0')}:${tijd.minute.toString().padLeft(2, '0')}';
 
   TimeOfDay? _parseTijd(String? tijdString) {
     if (tijdString == null) return null;
@@ -73,12 +103,16 @@ class _RouteDetailPageState extends State<RouteDetailPage> {
     final uur = int.tryParse(delen[0].trim());
     final minuut = int.tryParse(delen[1].trim());
     if (uur == null || minuut == null) return null;
+    if (uur < 0 || uur > 23 || minuut < 0 || minuut > 59) return null;
     return TimeOfDay(hour: uur, minute: minuut);
   }
 
   Future<void> _laadWeekData() async {
-    setState(() => _bezigMetLaden = true);
-    final dagKeys = _weekDagen.map(_dateKey).toList();
+    setState(() {
+      _bezigMetLaden = true;
+      _laadFout = null;
+    });
+    final dagKeys = _weekDagen.map(dateKey).toList();
 
     // Belangrijk: ook hier op clusterId filteren, naast routeNaam/depotNaam/
     // datum - de query moet filteren op precies het veld dat de security
@@ -88,20 +122,39 @@ class _RouteDetailPageState extends State<RouteDetailPage> {
 
     var query = FirebaseFirestore.instance
         .collection('dagplanning')
+        .where('bedrijfId', isEqualTo: widget.bedrijfId)
         .where('routeNaam', isEqualTo: widget.routeNaam)
         .where('depotNaam', isEqualTo: widget.depotNaam)
         .where('datum', whereIn: dagKeys);
     if (clusterId != null) {
       query = query.where('clusterId', isEqualTo: clusterId);
     }
-    final snapshot = await query.get();
+
+    final QuerySnapshot<Map<String, dynamic>> snapshot;
+    try {
+      snapshot = await query.get();
+    } catch (fout) {
+      // Zonder deze afhandeling bleef _bezigMetLaden voor altijd op true
+      // staan en zag de gebruiker een laad-animatie die nooit ophield.
+      if (!mounted) return;
+      setState(() {
+        _bezigMetLaden = false;
+        _laadFout = '$fout';
+      });
+      return;
+    }
 
     if (!mounted) return;
 
     final nieuweWeekData = <String, Map<String, dynamic>>{};
     for (final doc in snapshot.docs) {
       final data = doc.data();
-      nieuweWeekData[data['datum'] as String] = {...data, 'docId': doc.id};
+      // Een document zonder (of met een raar) datum-veld sloeg de hele
+      // opvraging stuk op een mislukte cast; nu wordt het simpelweg
+      // overgeslagen.
+      final datum = data['datum'];
+      if (datum is! String) continue;
+      nieuweWeekData[datum] = {...data, 'docId': doc.id};
     }
 
     setState(() {
@@ -112,7 +165,7 @@ class _RouteDetailPageState extends State<RouteDetailPage> {
   }
 
   void _vulVeldenVoorGeselecteerdeDag() {
-    final data = _weekData[_dateKey(_datum)];
+    final data = _weekData[dateKey(_datum)];
     if (data != null) {
       setState(() {
         _dagplanningDocId = data['docId'] as String?;
@@ -140,10 +193,11 @@ class _RouteDetailPageState extends State<RouteDetailPage> {
   /// een chauffeur + starttijd is ingevuld. Wordt aangeroepen vlak voordat we
   /// van dag/week wisselen of het scherm verlaten, zodat niets verloren gaat
   /// zonder dat er expliciet op "Opslaan" geklikt hoeft te worden.
-  Future<void> _autoOpslaanIndienMogelijk() async {
+  Future<bool> _autoOpslaanIndienMogelijk() async {
     if (_chauffeurDocId != null && _starttijd != null && !_bezigMetOpslaan) {
-      await _opslaan(toonSnackbar: false);
+      return _opslaan(toonSnackbar: false);
     }
+    return true;
   }
 
   Future<void> _kiesWeekDag(DateTime dag) async {
@@ -157,8 +211,8 @@ class _RouteDetailPageState extends State<RouteDetailPage> {
     await _autoOpslaanIndienMogelijk();
     if (!mounted) return;
     setState(() {
-      _datum = _datum.subtract(const Duration(days: 7));
-      _weekDagen = _berekenWeekDagen(_datum);
+      _datum = plusDagen(_datum, -7);
+      _weekDagen = weekDagen(_datum);
     });
     _laadWeekData();
   }
@@ -167,20 +221,25 @@ class _RouteDetailPageState extends State<RouteDetailPage> {
     await _autoOpslaanIndienMogelijk();
     if (!mounted) return;
     setState(() {
-      _datum = _datum.add(const Duration(days: 7));
-      _weekDagen = _berekenWeekDagen(_datum);
+      _datum = plusDagen(_datum, 7);
+      _weekDagen = weekDagen(_datum);
     });
     _laadWeekData();
   }
 
   Future<void> _kiesAndereDatum() async {
-    final gekozen = await showDatePicker(context: context, initialDate: _datum, firstDate: DateTime(2020), lastDate: DateTime(2100));
+    final gekozen = await showDatePicker(
+      context: context,
+      initialDate: _datum,
+      firstDate: DateTime(2020),
+      lastDate: DateTime(2100),
+    );
     if (gekozen != null) {
       await _autoOpslaanIndienMogelijk();
       if (!mounted) return;
       setState(() {
-        _datum = gekozen;
-        _weekDagen = _berekenWeekDagen(gekozen);
+        _datum = alleenDatum(gekozen);
+        _weekDagen = weekDagen(gekozen);
       });
       _laadWeekData();
     }
@@ -234,11 +293,14 @@ class _RouteDetailPageState extends State<RouteDetailPage> {
     setState(() => _eindtijd = null);
   }
 
-  Future<void> _opslaan({bool toonSnackbar = true}) async {
-    if (_chauffeurDocId == null || _starttijd == null) return;
+  /// Slaat de ingevulde dag op. Geeft terug of dat gelukt is, zodat de
+  /// aanroeper (bijv. het weggaan van dit scherm) weet of er data verloren
+  /// dreigt te gaan.
+  Future<bool> _opslaan({bool toonSnackbar = true}) async {
+    if (_chauffeurDocId == null || _starttijd == null) return false;
     setState(() => _bezigMetOpslaan = true);
 
-    final datumKey = _dateKey(_datum);
+    final datumKey = dateKey(_datum);
     final stopsGeladen = int.tryParse(_stopsGeladenController.text.trim());
     final stopsGeleverd = int.tryParse(_stopsGeleverdController.text.trim());
     final clusterId = widget.clusterId;
@@ -248,26 +310,44 @@ class _RouteDetailPageState extends State<RouteDetailPage> {
       'routeNaam': widget.routeNaam,
       'depotNaam': widget.depotNaam,
       'clusterId': clusterId,
+      'bedrijfId': widget.bedrijfId,
       'chauffeurNaam': _chauffeurNaam,
       'chauffeurDocId': _chauffeurDocId,
-      'starttijd': _starttijd!.format(context),
-      'eindtijd': _eindtijd?.format(context),
+      'starttijd': _tijdNaarTekst(_starttijd!),
+      'eindtijd': _eindtijd == null ? null : _tijdNaarTekst(_eindtijd!),
       'duurMinuten': _duurInMinuten,
       'stopsGeladen': stopsGeladen,
       'stopsGeleverd': stopsGeleverd,
       'ingevoerdDoor': FirebaseAuth.instance.currentUser?.email,
     };
 
-    String docId;
-    if (_dagplanningDocId == null) {
-      final nieuwDoc = await FirebaseFirestore.instance.collection('dagplanning').add(data);
-      docId = nieuwDoc.id;
-    } else {
-      docId = _dagplanningDocId!;
-      await FirebaseFirestore.instance.collection('dagplanning').doc(docId).update(data);
+    // Zonder deze try/catch bleef _bezigMetOpslaan bij een mislukte
+    // schrijfactie op true staan: de Opslaan-knop werd dan permanent grijs en
+    // je kon je invoer helemaal niet meer bewaren tot je het scherm sloot -
+    // waarbij je invoer dus alsnog weg was.
+    final String docId;
+    try {
+      if (_dagplanningDocId == null) {
+        final nieuwDoc = await FirebaseFirestore.instance.collection('dagplanning').add(data);
+        docId = nieuwDoc.id;
+      } else {
+        docId = _dagplanningDocId!;
+        await FirebaseFirestore.instance.collection('dagplanning').doc(docId).update(data);
+      }
+    } catch (fout) {
+      if (!mounted) return false;
+      setState(() => _bezigMetOpslaan = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Opslaan mislukt: $fout'),
+          backgroundColor: Colors.red.shade700,
+          duration: const Duration(seconds: 6),
+        ),
+      );
+      return false;
     }
 
-    if (!mounted) return;
+    if (!mounted) return true;
     setState(() {
       _dagplanningDocId = docId;
       _weekData[datumKey] = {...data, 'docId': docId};
@@ -276,6 +356,7 @@ class _RouteDetailPageState extends State<RouteDetailPage> {
     if (toonSnackbar) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Opgeslagen!')));
     }
+    return true;
   }
 
   Future<void> _leegmaken() async {
@@ -285,7 +366,9 @@ class _RouteDetailPageState extends State<RouteDetailPage> {
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: const Text('Route leegmaken?'),
-        content: const Text('Weet je zeker dat je de chauffeur en tijden voor deze dag wilt verwijderen? Er wordt dan geen chauffeur meer gekoppeld en er zijn geen uren geregistreerd.'),
+        content: const Text(
+          'Weet je zeker dat je de chauffeur en tijden voor deze dag wilt verwijderen? Er wordt dan geen chauffeur meer gekoppeld en er zijn geen uren geregistreerd.',
+        ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Annuleren')),
           ElevatedButton(
@@ -296,10 +379,18 @@ class _RouteDetailPageState extends State<RouteDetailPage> {
         ],
       ),
     );
-    if (bevestigd != true) return;
+    if (bevestigd != true || !mounted) return;
 
-    final datumKey = _dateKey(_datum);
-    await FirebaseFirestore.instance.collection('dagplanning').doc(_dagplanningDocId).delete();
+    final datumKey = dateKey(_datum);
+    try {
+      await FirebaseFirestore.instance.collection('dagplanning').doc(_dagplanningDocId).delete();
+    } catch (fout) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Leegmaken mislukt: $fout'), backgroundColor: Colors.red.shade700));
+      return;
+    }
 
     if (!mounted) return;
     setState(() {
@@ -316,14 +407,16 @@ class _RouteDetailPageState extends State<RouteDetailPage> {
   }
 
   Widget _weekDagKnop(DateTime dag) {
-    final key = _dateKey(dag);
-    final isGeselecteerd = _dateKey(_datum) == key;
+    final key = dateKey(dag);
+    final isGeselecteerd = dateKey(_datum) == key;
     final dagData = _weekData[key];
     final isCompleet = dagData != null && dagData['eindtijd'] != null;
     final isDeelsIngevuld = dagData != null && dagData['eindtijd'] == null;
 
     final achtergrond = isGeselecteerd ? Theme.of(context).colorScheme.primary : Colors.transparent;
-    final voorgrond = isGeselecteerd ? Theme.of(context).colorScheme.onPrimary : Theme.of(context).colorScheme.onSurface;
+    final voorgrond = isGeselecteerd
+        ? Theme.of(context).colorScheme.onPrimary
+        : Theme.of(context).colorScheme.onSurface;
     final randkleur = isGeselecteerd ? Theme.of(context).colorScheme.primary : Colors.grey.shade300;
 
     return Expanded(
@@ -339,9 +432,15 @@ class _RouteDetailPageState extends State<RouteDetailPage> {
           ),
           child: Column(
             children: [
-              Text(_dagAfkortingen[dag.weekday - 1], style: TextStyle(fontSize: 12, color: voorgrond, fontWeight: FontWeight.w600)),
+              Text(
+                _dagAfkortingen[dag.weekday - 1],
+                style: TextStyle(fontSize: 12, color: voorgrond, fontWeight: FontWeight.w600),
+              ),
               const SizedBox(height: 4),
-              Text('${dag.day}', style: TextStyle(fontSize: 15, color: voorgrond, fontWeight: FontWeight.bold)),
+              Text(
+                '${dag.day}',
+                style: TextStyle(fontSize: 15, color: voorgrond, fontWeight: FontWeight.bold),
+              ),
               const SizedBox(height: 6),
               Container(
                 width: 7,
@@ -362,7 +461,11 @@ class _RouteDetailPageState extends State<RouteDetailPage> {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Container(width: 8, height: 8, decoration: BoxDecoration(shape: BoxShape.circle, color: kleur)),
+        Container(
+          width: 8,
+          height: 8,
+          decoration: BoxDecoration(shape: BoxShape.circle, color: kleur),
+        ),
         const SizedBox(width: 5),
         Text(label, style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
       ],
@@ -377,13 +480,49 @@ class _RouteDetailPageState extends State<RouteDetailPage> {
       canPop: false,
       onPopInvokedWithResult: (didPop, result) async {
         if (didPop) return;
-        await _autoOpslaanIndienMogelijk();
-        if (context.mounted) Navigator.of(context).pop();
+        final opgeslagen = await _autoOpslaanIndienMogelijk();
+        if (!context.mounted) return;
+        // Ging het automatisch opslaan mis, dan sloot dit scherm vroeger
+        // gewoon en was de invoer weg zonder dat iemand dat merkte. Nu eerst
+        // vragen of er echt weggegaan moet worden.
+        if (!opgeslagen) {
+          final tochWeg = await showDialog<bool>(
+            context: context,
+            builder: (dialogContext) => AlertDialog(
+              title: const Text('Niet opgeslagen'),
+              content: const Text('Deze dag kon niet worden opgeslagen. Als je nu teruggaat, ben je je invoer kwijt.'),
+              actions: [
+                TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Blijven')),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+                  onPressed: () => Navigator.pop(dialogContext, true),
+                  child: const Text('Toch teruggaan'),
+                ),
+              ],
+            ),
+          );
+          if (tochWeg != true || !context.mounted) return;
+        }
+        Navigator.of(context).pop();
       },
       child: Scaffold(
         appBar: GradientAppBar(title: Text(widget.routeNaam)),
         body: _bezigMetLaden
             ? const Center(child: AppLoader())
+            : _laadFout != null
+            ? Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text('Kan deze week niet laden:\n$_laadFout', textAlign: TextAlign.center),
+                      const SizedBox(height: 16),
+                      OutlinedButton(onPressed: _laadWeekData, child: const Text('Opnieuw proberen')),
+                    ],
+                  ),
+                ),
+              )
             : Padding(
                 padding: const EdgeInsets.all(16.0),
                 child: ListView(
@@ -418,15 +557,27 @@ class _RouteDetailPageState extends State<RouteDetailPage> {
                     const SizedBox(height: 20),
                     const Divider(),
                     StreamBuilder<QuerySnapshot>(
-                      stream: FirebaseFirestore.instance.collection('chauffeurs').snapshots(),
+                      stream: FirebaseFirestore.instance
+                          .collection('chauffeurs')
+                          .where('bedrijfId', isEqualTo: widget.bedrijfId)
+                          .snapshots(),
                       builder: (context, snapshot) {
+                        if (snapshot.hasError) {
+                          return Text(
+                            'Kan chauffeurs niet laden: ${snapshot.error}',
+                            style: const TextStyle(color: Colors.red),
+                          );
+                        }
                         if (!snapshot.hasData) return const Center(child: AppLoader());
                         final chauffeurs = snapshot.data!.docs;
                         final huidigeIds = chauffeurs.map((c) => c.id).toSet();
-                        final geldigeWaarde = (_chauffeurDocId != null && huidigeIds.contains(_chauffeurDocId)) ? _chauffeurDocId : null;
+                        final geldigeWaarde = (_chauffeurDocId != null && huidigeIds.contains(_chauffeurDocId))
+                            ? _chauffeurDocId
+                            : null;
                         return DropdownButtonFormField<String>(
-                          decoration: InputDecoration(
-                            labelText: 'Chauffeur',
+                          isExpanded: true,
+                          decoration: _nettDecoration(
+                            'Chauffeur',
                             suffixIcon: geldigeWaarde != null
                                 ? IconButton(
                                     icon: const Icon(Icons.clear),
@@ -435,17 +586,21 @@ class _RouteDetailPageState extends State<RouteDetailPage> {
                                   )
                                 : null,
                           ),
-                          value: geldigeWaarde,
+                          initialValue: geldigeWaarde,
                           items: chauffeurs.map((c) {
                             final data = c.data() as Map<String, dynamic>;
                             return DropdownMenuItem(value: c.id, child: Text(data['naam'] ?? 'Onbekend'));
                           }).toList(),
                           onChanged: (waarde) {
-                            final gekozenDoc = chauffeurs.firstWhere((c) => c.id == waarde);
+                            // firstWhere zonder orElse gooide een StateError
+                            // zodra de gekozen chauffeur net was verwijderd
+                            // door iemand anders (de lijst is een live stream).
+                            final gekozenDoc = chauffeurs.where((c) => c.id == waarde).firstOrNull;
+                            if (gekozenDoc == null) return;
                             final data = gekozenDoc.data() as Map<String, dynamic>;
                             setState(() {
                               _chauffeurDocId = waarde;
-                              _chauffeurNaam = data['naam'];
+                              _chauffeurNaam = data['naam']?.toString();
                             });
                           },
                         );
@@ -487,7 +642,10 @@ class _RouteDetailPageState extends State<RouteDetailPage> {
                       onTap: _kiesEindtijd,
                     ),
                     if (_duurTekst != null)
-                      Padding(padding: const EdgeInsets.symmetric(vertical: 12), child: Text('Duur: $_duurTekst', style: const TextStyle(fontWeight: FontWeight.bold))),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        child: Text('Duur: $_duurTekst', style: const TextStyle(fontWeight: FontWeight.bold)),
+                      ),
                     const SizedBox(height: 16),
                     Row(
                       children: [
@@ -496,10 +654,7 @@ class _RouteDetailPageState extends State<RouteDetailPage> {
                             controller: _stopsGeladenController,
                             keyboardType: TextInputType.number,
                             inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                            decoration: const InputDecoration(
-                              labelText: 'Aantal stops geladen',
-                              border: OutlineInputBorder(),
-                            ),
+                            decoration: _nettDecoration('Aantal stops geladen'),
                           ),
                         ),
                         const SizedBox(width: 12),
@@ -508,10 +663,7 @@ class _RouteDetailPageState extends State<RouteDetailPage> {
                             controller: _stopsGeleverdController,
                             keyboardType: TextInputType.number,
                             inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                            decoration: const InputDecoration(
-                              labelText: 'Aantal stops geleverd',
-                              border: OutlineInputBorder(),
-                            ),
+                            decoration: _nettDecoration('Aantal stops geleverd'),
                           ),
                         ),
                       ],
@@ -541,11 +693,15 @@ class _RouteDetailPageState extends State<RouteDetailPage> {
                         padding: const EdgeInsets.only(top: 20),
                         child: Card(
                           elevation: 0,
-                          color: isCompleetVoorGeselecteerdeDag ? Theme.of(context).colorScheme.primaryContainer : Colors.orange.shade50,
+                          color: isCompleetVoorGeselecteerdeDag
+                              ? Theme.of(context).colorScheme.primaryContainer
+                              : Colors.orange.shade50,
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(14),
                             side: BorderSide(
-                              color: isCompleetVoorGeselecteerdeDag ? Theme.of(context).colorScheme.primary.withOpacity(0.3) : Colors.orange.shade200,
+                              color: isCompleetVoorGeselecteerdeDag
+                                  ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.3)
+                                  : Colors.orange.shade200,
                             ),
                           ),
                           child: Padding(
@@ -555,7 +711,9 @@ class _RouteDetailPageState extends State<RouteDetailPage> {
                               children: [
                                 CircleAvatar(
                                   radius: 20,
-                                  backgroundColor: isCompleetVoorGeselecteerdeDag ? Theme.of(context).colorScheme.primary : Colors.orange,
+                                  backgroundColor: isCompleetVoorGeselecteerdeDag
+                                      ? Theme.of(context).colorScheme.primary
+                                      : Colors.orange,
                                   child: Icon(
                                     isCompleetVoorGeselecteerdeDag ? Icons.check : Icons.hourglass_bottom,
                                     color: Colors.white,
@@ -580,7 +738,8 @@ class _RouteDetailPageState extends State<RouteDetailPage> {
                                         ' · ${DateFormat('dd-MM-yyyy').format(_datum)}',
                                         style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
                                       ),
-                                      if (_stopsGeladenController.text.isNotEmpty || _stopsGeleverdController.text.isNotEmpty)
+                                      if (_stopsGeladenController.text.isNotEmpty ||
+                                          _stopsGeleverdController.text.isNotEmpty)
                                         Padding(
                                           padding: const EdgeInsets.only(top: 2),
                                           child: Text(

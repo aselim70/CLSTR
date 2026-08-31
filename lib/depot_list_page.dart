@@ -7,14 +7,11 @@ const Color _kNavy = Color(0xFF002169);
 const Color _kOrange = Color(0xFFFF8500);
 
 class DepotListPage extends StatelessWidget {
+  final String bedrijfId;
   final String clusterId;
   final String clusterNaam;
 
-  const DepotListPage({
-    super.key,
-    required this.clusterId,
-    required this.clusterNaam,
-  });
+  const DepotListPage({super.key, required this.bedrijfId, required this.clusterId, required this.clusterNaam});
 
   @override
   Widget build(BuildContext context) {
@@ -31,6 +28,7 @@ class DepotListPage extends StatelessWidget {
         child: StreamBuilder<QuerySnapshot>(
           stream: FirebaseFirestore.instance
               .collection('depots')
+              .where('bedrijfId', isEqualTo: bedrijfId)
               .where('clusterId', isEqualTo: clusterId)
               .snapshots(),
           builder: (context, snapshot) {
@@ -66,7 +64,8 @@ class DepotListPage extends StatelessWidget {
                       Navigator.push(
                         context,
                         MaterialPageRoute(
-                          builder: (context) => RouteListPage(depotNaam: naam, clusterId: clusterId),
+                          builder: (context) =>
+                              RouteListPage(depotNaam: naam, clusterId: clusterId, bedrijfId: bedrijfId),
                         ),
                       );
                     },
@@ -93,7 +92,7 @@ class _DepotKaart extends StatelessWidget {
       color: Colors.white,
       borderRadius: BorderRadius.circular(16),
       elevation: 2,
-      shadowColor: Colors.black.withOpacity(0.15),
+      shadowColor: Colors.black.withValues(alpha: 0.15),
       child: InkWell(
         borderRadius: BorderRadius.circular(16),
         onTap: onTap,
@@ -105,7 +104,7 @@ class _DepotKaart extends StatelessWidget {
                 width: 44,
                 height: 44,
                 decoration: BoxDecoration(
-                  color: _kNavy.withOpacity(0.08),
+                  color: _kNavy.withValues(alpha: 0.08),
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: const Icon(Icons.warehouse_rounded, color: _kNavy, size: 22),
@@ -114,19 +113,12 @@ class _DepotKaart extends StatelessWidget {
               Expanded(
                 child: Text(
                   naam,
-                  style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                    color: _kNavy,
-                  ),
+                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: _kNavy),
                 ),
               ),
               Container(
                 padding: const EdgeInsets.all(6),
-                decoration: BoxDecoration(
-                  color: _kOrange.withOpacity(0.12),
-                  shape: BoxShape.circle,
-                ),
+                decoration: BoxDecoration(color: _kOrange.withValues(alpha: 0.12), shape: BoxShape.circle),
                 child: const Icon(Icons.chevron_right, color: _kOrange, size: 20),
               ),
             ],

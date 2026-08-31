@@ -31,9 +31,7 @@ class GradientAppBar extends StatelessWidget implements PreferredSizeWidget {
       backgroundColor: Colors.transparent,
       foregroundColor: Colors.white,
       elevation: 0,
-      flexibleSpace: Container(
-        decoration: const BoxDecoration(gradient: kBlauwGradient),
-      ),
+      flexibleSpace: Container(decoration: const BoxDecoration(gradient: kBlauwGradient)),
     );
   }
 
@@ -60,10 +58,7 @@ class _AppLoaderState extends State<AppLoader> with SingleTickerProviderStateMix
   @override
   void initState() {
     super.initState();
-    _controller = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 850),
-    )..repeat(reverse: true);
+    _controller = AnimationController(vsync: this, duration: const Duration(milliseconds: 850))..repeat(reverse: true);
   }
 
   @override
@@ -108,10 +103,7 @@ class GradientButton extends StatelessWidget {
     return Opacity(
       opacity: actief ? 1 : 0.5,
       child: Container(
-        decoration: BoxDecoration(
-          gradient: kBlauwGradient,
-          borderRadius: BorderRadius.circular(12),
-        ),
+        decoration: BoxDecoration(gradient: kBlauwGradient, borderRadius: BorderRadius.circular(12)),
         child: Material(
           color: Colors.transparent,
           child: InkWell(

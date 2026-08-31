@@ -25,10 +25,7 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
   @override
   void initState() {
     super.initState();
-    _controller = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1400),
-    );
+    _controller = AnimationController(vsync: this, duration: const Duration(milliseconds: 1400));
 
     // Busje rijdt tijdens de eerste 65% van de animatie het scherm in.
     _busjeAnimatie = CurvedAnimation(
@@ -42,7 +39,10 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
       curve: const Interval(0.35, 1.0, curve: Curves.easeOut),
     );
     _logoSchaal = Tween<double>(begin: 0.85, end: 1.0).animate(
-      CurvedAnimation(parent: _controller, curve: const Interval(0.35, 1.0, curve: Curves.easeOutBack)),
+      CurvedAnimation(
+        parent: _controller,
+        curve: const Interval(0.35, 1.0, curve: Curves.easeOutBack),
+      ),
     );
 
     _controller.forward();
@@ -85,11 +85,7 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
                   opacity: _logoOpacity,
                   child: ScaleTransition(
                     scale: _logoSchaal,
-                    child: Image.asset(
-                      'assets/images/clstr_logo.png',
-                      height: 90,
-                      fit: BoxFit.contain,
-                    ),
+                    child: Image.asset('assets/images/clstr_logo.png', height: 90, fit: BoxFit.contain),
                   ),
                 ),
                 const SizedBox(height: 36),
@@ -100,11 +96,7 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
                     final dx = (_busjeAnimatie.value - 1) * (breedte * 0.4);
                     return Transform.translate(offset: Offset(dx, 0), child: child);
                   },
-                  child: const Icon(
-                    Icons.local_shipping_rounded,
-                    size: 44,
-                    color: Colors.white,
-                  ),
+                  child: const Icon(Icons.local_shipping_rounded, size: 44, color: Colors.white),
                 ),
               ],
             ),

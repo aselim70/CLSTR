@@ -1,0 +1,161 @@
+rules_version = '2';
+
+// ============================================================================
+// CLSTR - Firestore Security Rules
+//
+// LET OP: deze rules gaan ervan uit dat de eenmalige migratie naar meerdere
+// bedrijven al is uitgevoerd (zie "Sub-accounts beheren" -> "Stap 1: Bedrijf
+// 'ISK' aanmaken" en "Stap 2: Account promoveren tot Superadmin"). Zolang dat
+// niet is gebeurd, heeft geen enkel document een 'bedrijfId' en zal deze
+// versie van de rules alles blokkeren behalve voor de superadmin. Zet deze
+// rules dus pas live NADAT beide migratiestappen zijn uitgevoerd.
+//
+// Belangrijk detail: alle velden worden uitgelezen via .get('veld', default)
+// in plaats van rechtstreeks (.veld). Dat is expres: als een document dat
+// veld niet heeft, dan gooit Firestore bij rechtstreekse toegang (.veld) een
+// fout die de hele regel laat mislukken - ook het deel dat allang
+// "toegestaan" had moeten zeggen. Met .get(..., default) krijg je gewoon de
+// standaardwaarde terug in plaats van een fout.
+//
+// Belangrijk detail #2: voor LIJST-opvragingen (bijv. "alle depots van dit
+// bedrijf") kan Firestore een regel alleen goedkeuren als de query zelf al
+// filtert op precies de velden die de regel vergelijkt (hier: 'bedrijfId' en
+// 'clusterId'). Daarom filtert de app overal in de Dart-code expliciet op
+// zowel bedrijfId als clusterId bij het opvragen van lijsten - zie de
+// bijbehorende code-commentaren daar.
+// ============================================================================
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function ingelogd() {
+      return request.auth != null;
+    }
+
+    // Het eigen gebruikersdocument (document-ID = lowercase e-mailadres,
+    // zelfde manier zoals de app dat ook opzoekt in main.dart).
+    function huidigeGebruiker() {
+      return get(/databases/$(database)/documents/gebruikers/$(request.auth.token.email.lower())).data;
+    }
+
+    function isAdmin() {
+      return ingelogd() && huidigeGebruiker().get('rol', '') == 'admin';
+    }
+
+    // Superadmin: mag alles zien/doen, in elk bedrijf. Dit is de enige
+    // resource-data-onafhankelijke bypass, precies zoals isAdmin() dat
+    // vroeger was toen er nog maar één bedrijf was.
+    function isSuperadmin() {
+      return ingelogd() && huidigeGebruiker().get('rol', '') == 'superadmin';
+    }
+
+    // Mag deze gebruiker BEHEERHANDELINGEN doen (aanmaken/wijzigen/
+    // verwijderen) op een document van dit bedrijf? Alleen de eigen
+    // bedrijf-admin, of de superadmin.
+    function magBeherenBedrijf(bedrijfId) {
+      return isSuperadmin() || (isAdmin() && huidigeGebruiker().get('bedrijfId', null) == bedrijfId);
+    }
+
+    // Mag deze gebruiker een document van dit bedrijf/cluster ZIEN of erin
+    // WERKEN? Superadmin altijd; anders alleen binnen het eigen bedrijf, en
+    // dan alleen als admin (ziet alle clusters van dat bedrijf) of als het
+    // cluster expliciet is toegewezen.
+    //
+    // Let op: het gebruikersdocument wordt hier maar ÉÉN keer opgehaald (via
+    // 'let') en daarna hergebruikt - scheelt een extra get()-opvraging per
+    // document t.o.v. apart isSuperadmin() + huidigeGebruiker() aanroepen,
+    // belangrijk bij lijsten met meerdere documenten.
+    function magToegang(bedrijfId, clusterId) {
+      let gebruiker = huidigeGebruiker();
+      return isSuperadmin() || (
+        ingelogd() && gebruiker.get('bedrijfId', null) == bedrijfId &&
+        (gebruiker.get('rol', '') == 'admin' || clusterId in gebruiker.get('clusters', []))
+      );
+    }
+
+    // --- gebruikers (accounts/rollen) -------------------------------------
+    // Iedereen mag zijn eigen document lezen (nodig om in te loggen en de
+    // eigen rol/bedrijfId/clusters op te halen). Een admin mag daarnaast de
+    // accounts van zijn EIGEN bedrijf lezen; superadmin mag alles lezen.
+    // Schrijven mag NERGENS meer rechtstreeks vanuit de app - dat loopt
+    // voortaan verplicht via Cloud Functions (maakAccountAan,
+    // bijwerkenAccount, verwijderAccount, maakBedrijfMetAdminAan), die met de
+    // Admin SDK draaien en dus sowieso niet langs deze rules gaan. Dit
+    // 'allow write: if false' voorkomt dat iemand via een directe Firestore-
+    // aanroep zijn eigen rol of bedrijfId zou kunnen aanpassen.
+    match /gebruikers/{userId} {
+      allow read: if ingelogd() && (
+        request.auth.token.email.lower() == userId ||
+        isSuperadmin() ||
+        (isAdmin() && resource.data.get('bedrijfId', null) == huidigeGebruiker().get('bedrijfId', null))
+      );
+      allow write: if false;
+    }
+
+    // --- bedrijven ----------------------------------------------------------
+    // Lezen mag iedereen binnen het eigen bedrijf (of superadmin) - nodig
+    // om bijv. de bedrijfsnaam te tonen. Hernoemen (update) mag de eigen
+    // bedrijf-admin of superadmin. Aanmaken/verwijderen van een heel bedrijf
+    // mag alleen superadmin (in de praktijk gebeurt aanmaken via de Cloud
+    // Function maakBedrijfMetAdminAan, die met de Admin SDK draait).
+    match /bedrijven/{bedrijfId} {
+      allow read: if isSuperadmin() || (ingelogd() && huidigeGebruiker().get('bedrijfId', null) == bedrijfId);
+      allow update: if magBeherenBedrijf(bedrijfId);
+      allow create, delete: if isSuperadmin();
+    }
+
+    // --- clusters -------------------------------------------------------
+    // Lezen mag iedereen binnen het eigen bedrijf (nodig voor dropdowns bij
+    // sub-accounts beheren, depot toevoegen, etc). Aanmaken/hernoemen/
+    // verwijderen mag de eigen bedrijf-admin of superadmin - dit is precies
+    // wat de nieuwe cluster-beheer-pagina gebruikt.
+    match /clusters/{clusterId} {
+      allow read: if isSuperadmin() || (ingelogd() && huidigeGebruiker().get('bedrijfId', null) == resource.data.get('bedrijfId', null));
+      allow create: if magBeherenBedrijf(request.resource.data.get('bedrijfId', null));
+      allow update, delete: if magBeherenBedrijf(resource.data.get('bedrijfId', null));
+    }
+
+    // --- depots -------------------------------------------------------------
+    // Lezen mag iedereen binnen het eigen bedrijf+cluster (superadmin ziet
+    // alles). Aanmaken/wijzigen/verwijderen mag alleen een admin van het
+    // eigen bedrijf (of superadmin) - zelfde als voorheen, nu bedrijf-gescoped.
+    match /depots/{depotId} {
+      allow read: if magToegang(resource.data.get('bedrijfId', null), resource.data.get('clusterId', null));
+      allow create: if magBeherenBedrijf(request.resource.data.get('bedrijfId', null));
+      allow update, delete: if magBeherenBedrijf(resource.data.get('bedrijfId', null));
+    }
+
+    // --- routes ---------------------------------------------------------
+    // Lezen/aanmaken/wijzigen/verwijderen mag iedereen binnen het eigen
+    // bedrijf+cluster (zowel admin als sub-account mag routes beheren).
+    match /routes/{routeId} {
+      allow read: if magToegang(resource.data.get('bedrijfId', null), resource.data.get('clusterId', null));
+      allow create: if magToegang(request.resource.data.get('bedrijfId', null), request.resource.data.get('clusterId', null));
+      allow update, delete: if magToegang(resource.data.get('bedrijfId', null), resource.data.get('clusterId', null));
+    }
+
+    // --- dagplanning (de dagelijkse invoer per route) --------------------
+    // Zelfde regel als routes: lezen/aanmaken/wijzigen/verwijderen mag
+    // iedereen binnen het eigen bedrijf+cluster. Blijft ook na verwijderen
+    // van de bijbehorende route gewoon bestaan, dus rapportage blijft werken.
+    match /dagplanning/{dagId} {
+      allow read: if magToegang(resource.data.get('bedrijfId', null), resource.data.get('clusterId', null));
+      allow create: if magToegang(request.resource.data.get('bedrijfId', null), request.resource.data.get('clusterId', null));
+      allow update, delete: if magToegang(resource.data.get('bedrijfId', null), resource.data.get('clusterId', null));
+    }
+
+    // --- chauffeurs -------------------------------------------------------
+    // Was voorheen volledig open ("iedereen die is ingelogd, ongeacht welk
+    // bedrijf") - dat was een lek zodra er meerdere bedrijven zijn. Nu:
+    // zichtbaar/bewerkbaar voor iedereen binnen hetzelfde bedrijf (geen
+    // cluster-eis, net als voorheen geen cluster-eis had), of superadmin.
+    match /chauffeurs/{chauffeurId} {
+      allow read: if isSuperadmin() || (ingelogd() && huidigeGebruiker().get('bedrijfId', null) == resource.data.get('bedrijfId', null));
+      allow create: if isSuperadmin() || (ingelogd() && huidigeGebruiker().get('bedrijfId', null) == request.resource.data.get('bedrijfId', null));
+      allow update, delete: if isSuperadmin() || (ingelogd() && huidigeGebruiker().get('bedrijfId', null) == resource.data.get('bedrijfId', null));
+    }
+
+    // Alles wat hierboven niet expliciet is toegestaan, wordt automatisch
+    // geweigerd door Firestore (geen aparte "deny all" regel nodig).
+  }
+}
