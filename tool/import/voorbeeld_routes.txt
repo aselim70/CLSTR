@@ -1,0 +1,11 @@
+# Eén routenaam per regel, precies zoals hij in de app moet komen te staan.
+# Het ritnummer hoeft er niet apart bij: dat wordt uit de naam gehaald.
+#
+# Alle routes in hetzelfde depot? Geef dat mee met --depot="Depot Noord".
+# Anders zet je het depot erachter, gescheiden door een puntkomma:
+#
+#   622 RSD Westrand ; Depot Noord
+
+622 RSD Westrand
+623 RSD Oost
+711 RSD Centrum

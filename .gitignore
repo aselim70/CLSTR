@@ -52,6 +52,8 @@ serviceAccountKey.json
 
 # Cloud Functions dependencies (te groot, hoort niet in git)
 functions/node_modules/
+# Idem voor de importscripts (tool/import/, zie de README daar)
+tool/import/node_modules/
 # Android signing — NOOIT committen (bevat het keystore-wachtwoord)
 android/key.properties
 *.jks

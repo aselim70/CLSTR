@@ -1,0 +1,11 @@
+{
+  "name": "clstr-import",
+  "description": "Eenmalige importscripts: chauffeurs en routes in bulk toevoegen aan een bedrijf.",
+  "private": true,
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "firebase-admin": "^14.0.0"
+  }
+}

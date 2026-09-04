@@ -58,3 +58,11 @@ jobs:
       # installeerbaar zijn, en een syntaxfout in index.js.
       - run: node --check index.js
         working-directory: functions
+
+      # De importscripts krijgen dezelfde behandeling. Ze draaien alleen met
+      # de hand en staan dus niet in de weg als ze stuk zijn — maar je merkt
+      # dat anders pas op het moment dat je ze nodig hebt, meestal met een
+      # lijst van honderd namen naast je. `npm ci` doen we hier bewust niet:
+      # firebase-admin installeren duurt langer dan deze controle waard is.
+      - run: node --check _gedeeld.js && node --check importeer_chauffeurs.js && node --check importeer_routes.js
+        working-directory: tool/import

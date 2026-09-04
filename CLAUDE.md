@@ -16,6 +16,7 @@ Nederlands.** Variabelen en functies dus ook (`bedrijfId`, `magToegang`,
 | `functions/index.js` | Cloud Functions: alle account- en bedrijfsmutaties. |
 | `firestore.rules` | Beveiligingsregels. Lees de kop van dat bestand vóór je iets wijzigt. |
 | `tool/bump_versie.dart` | Versienummer ophogen. |
+| `tool/import/` | Bulk-import van chauffeurs en routes. Zie de README daar. |
 | `.github/workflows/` | CI (controleren) + twee handmatige uitrol-workflows. |
 
 Firebase-project: **`clstr-794ed`**. Android-package: **`com.clstr.app`**.

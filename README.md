@@ -61,6 +61,20 @@ en [.github/workflows/deploy-firebase.yml](.github/workflows/deploy-firebase.yml
 
 iOS bouwen kan alleen op een Mac; de configuratie zit al in het project.
 
+## Chauffeurs of routes in bulk toevoegen
+
+Voor een nieuw bedrijf hoef je niet alles met de hand in te tikken:
+
+```bash
+cd tool/import && npm install          # eenmalig
+node tool/import/importeer_chauffeurs.js --bedrijf=<bedrijfId> --bestand=chauffeurs.txt
+node tool/import/importeer_routes.js    --bedrijf=<bedrijfId> --bestand=routes.txt --depot="Depot Noord"
+```
+
+Zonder `--schrijf` laten ze alleen zien wát ze zouden doen. Zie
+[tool/import/README.md](tool/import/README.md) voor het bestandsformaat en
+het inloggen.
+
 ## Meer
 
 [CLAUDE.md](CLAUDE.md) bevat de projectconventies, de uitrolprocedure in detail
