@@ -65,6 +65,15 @@ environment:
       expect(nieuw, isNot(contains('1.0.0+1')));
     });
 
+    test('laat de lege regels rond de versieregel staan', () {
+      // Deze ging eerder mis: de regex eindigde op `\s*$`, en omdat `\s` ook
+      // newlines matcht slikte de vervanging de regelovergang plus de lege
+      // regel erna in. Na één ophoging plakte `environment:` dus tegen de
+      // versieregel aan.
+      final nieuw = vervangVersie(pubspec, '1.1.0+2');
+      expect(nieuw, contains("publish_to: 'none'\n\nversion: 1.1.0+2\n\nenvironment:"));
+    });
+
     test('geeft null als er geen versieregel is', () {
       expect(leesVersie('name: clstr_app\n'), isNull);
     });

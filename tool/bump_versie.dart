@@ -58,7 +58,11 @@ void main(List<String> args) {
 /// De `version:`-regel van pubspec.yaml. Bewust aan het begin van de regel
 /// verankerd (`^` met multiLine), zodat een `version:` die dieper in het
 /// bestand als onderdeel van iets anders voorkomt niet per ongeluk meetelt.
-final RegExp _versieRegel = RegExp(r'^version:\s*(\S+)\s*$', multiLine: true);
+///
+/// Let op de spatie-en-tab in plaats van `\s`: `\s` matcht óók newlines, dus
+/// met `\s*$` slokte deze regex de regelovergang en de lege regel erna mee op.
+/// Elke ophoging plakte `environment:` dan strak tegen de versieregel aan.
+final RegExp _versieRegel = RegExp(r'^version:[ \t]*(\S+)[ \t]*$', multiLine: true);
 
 String? leesVersie(String pubspecInhoud) => _versieRegel.firstMatch(pubspecInhoud)?.group(1);
 
