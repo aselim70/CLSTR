@@ -8,12 +8,20 @@
           "fileOutput": "android/app/google-services.json"
         }
       },
+      "ios": {
+        "default": {
+          "projectId": "clstr-794ed",
+          "appId": "1:873333354510:ios:0c1063d832edde2dd34c5f",
+          "uploadDebugSymbols": false,
+          "fileOutput": "ios/Runner/GoogleService-Info.plist"
+        }
+      },
       "dart": {
         "lib/firebase_options.dart": {
           "projectId": "clstr-794ed",
           "configurations": {
             "android": "1:873333354510:android:f89da8cee3ed6b4bd34c5f",
-            "ios": "1:873333354510:ios:8090b7aee02fa8c9d34c5f"
+            "ios": "1:873333354510:ios:0c1063d832edde2dd34c5f"
           }
         }
       }

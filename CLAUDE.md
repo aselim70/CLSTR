@@ -17,9 +17,10 @@ Nederlands.** Variabelen en functies dus ook (`bedrijfId`, `magToegang`,
 | `firestore.rules` | Beveiligingsregels. Lees de kop van dat bestand vóór je iets wijzigt. |
 | `tool/bump_versie.dart` | Versienummer ophogen. |
 | `tool/import/` | Bulk-import van chauffeurs en routes. Zie de README daar. |
-| `.github/workflows/` | CI (controleren) + twee handmatige uitrol-workflows. |
+| `.github/workflows/` | CI (controleren) + drie handmatige uitrol-workflows. |
 
-Firebase-project: **`clstr-794ed`**. Android-package: **`com.clstr.app`**.
+Firebase-project: **`clstr-794ed`**. Android-package en iOS-bundle-id zijn
+allebei **`com.clstr.app`**.
 
 ## Drie lagen die apart updaten
 
@@ -66,7 +67,7 @@ Let op bij `firestore.rules`: een fout daarin sluit in één klap iedereen buite
 De regels lezen alle velden via `.get('veld', default)` en nooit rechtstreeks —
 de reden staat uitgelegd bovenaan het bestand. Houd dat aan.
 
-## Een update van de app uitbrengen
+## Een update van de app uitbrengen (Android)
 
 1. Versienaam ophogen:
    ```bash
@@ -84,11 +85,57 @@ Het buildnummer komt in CI **niet** uit `pubspec.yaml` maar uit het
 GitHub-runnummer (+ een offset van 100), omdat dat gegarandeerd oploopt.
 Google Play weigert een upload met een buildnummer dat al eens is gebruikt.
 
-iOS bouwen kan alleen op een Mac. De configuratie staat er wel.
-
 De keystore staat lokaal in `android/key.properties` en verwijst naar een
 `.jks` buiten de repo. Beide horen **nooit** in git. Raakt die sleutel kwijt,
 dan kun je nooit meer een update van deze app publiceren.
+
+## De iOS-app uitbrengen
+
+De projectconfiguratie is compleet: bundle-id `com.clstr.app`, een eigen
+iOS-app in Firebase, `ios/Runner/GoogleService-Info.plist`, app-icoon en
+opstartscherm. Er is nog nooit een iOS-build gedraaid, dus dat de app op
+Android werkt zegt nog niets over iOS.
+
+Bouwen gaat via Actions → **Release iOS** → Run workflow, met twee standen:
+
+- **`controleren`** — bouwt onondertekend op een macOS-runner. Vereist geen
+  Apple-account en geen enkel secret. Dit is de enige manier om vanaf Windows
+  te merken dat de iOS-build stuk is. Draai dit na elke `flutter pub upgrade`.
+- **`release`** — bouwt een ondertekende `.ipa`. Vereist het betaalde Apple
+  Developer Program en de secrets die bovenaan `release-ios.yml` staan.
+
+Let op: macOS-runners kosten 10× zoveel Actions-minuten als Linux. Daarom
+draait de iOS-build bewust **niet** mee in de gewone CI.
+
+Wat je zelf nog bij Apple moet regelen voordat een release kan:
+
+1. Apple Developer Program (€99/jaar), daarna een App-ID voor `com.clstr.app`,
+   een distributiecertificaat en een App Store-provisioningprofiel.
+2. De app aanmaken in App Store Connect en de **allereerste** build met de hand
+   uploaden (Transporter of Xcode) — pas daarna mag de API het overnemen.
+3. Een **demo-account** invullen bij de reviewgegevens. De app zit volledig
+   achter een login; zonder testaccount wordt hij gegarandeerd afgewezen.
+4. In de reviewnotitie vermelden dat gebruikers zich niet zelf registreren
+   (beheerders maken accounts aan) en verwijzen naar de pagina voor het
+   verwijderen van accounts op Hosting. Dat voorkomt een discussie over
+   richtlijn 5.1.1(v), die in-app accountverwijdering eist bij apps waar
+   gebruikers zélf een account aanmaken.
+5. Reken op een vraag over richtlijn 4.2: een app die maar voor één
+   organisatie bruikbaar is, stuurt Apple richting Apple Business Manager in
+   plaats van de publieke App Store.
+
+`ITSAppUsesNonExemptEncryption` staat op `false` in `Info.plist`, zodat je die
+exportvraag niet bij elke upload opnieuw hoeft te beantwoorden.
+
+Er is geen `Podfile`. Dat is goed: dit project gebruikt Swift Package Manager
+(zie `FlutterGeneratedPluginSwiftPackage` in het Xcode-project). Flutter maakt
+zelf een Podfile aan zodra er ooit een plugin bij komt die alleen CocoaPods
+ondersteunt. Schrijf er dus geen met de hand.
+
+De keten certificaat + provisioningprofiel is voor iOS wat de keystore voor
+Android is: raak je hem kwijt, dan is een nieuwe aan te vragen — anders dan bij
+Android is dat dus geen ramp. Wat je niet kwijt moet raken is het
+Apple-account zelf.
 
 ## De versiecheck (`app_config/versie`)
 
@@ -97,10 +144,24 @@ Firestore-document `app_config/versie`, met deze velden:
 | Veld | Type | Betekenis |
 | --- | --- | --- |
 | `minimumBuild` | number | Onder dit buildnummer blokkeert de app. Verplicht. |
+| `minimumBuildIos` | number | Optioneel; geldt op iOS in plaats van `minimumBuild`. |
 | `minimumVersie` | string | Alleen voor de tekst op het scherm, bijv. `"1.2.0"`. |
 | `bericht` | string | Optionele eigen uitleg. |
 | `storeUrlAndroid` | string | Optioneel; standaard de Play Store-pagina. |
-| `storeUrlIos` | string | Optioneel. |
+| `storeUrlIos` | string | Optioneel; géén standaard (zie hieronder). |
+
+**Waarom twee buildnummers.** Het runnummer van GitHub Actions telt per
+workflow, dus de Android- en de iOS-releaseworkflow delen elk hun eigen reeks
+uit (offset 100 respectievelijk 1000). Build 120 op Android is daarom een
+andere release dan build 120 op iOS. Zou je met één `minimumBuild` oude
+Android-versies blokkeren, dan sluit je willekeurige iOS-gebruikers mee buiten.
+Vul je `minimumBuildIos` niet in, dan geldt op iOS gewoon `minimumBuild` — een
+bestaand document blijft dus werken.
+
+Voor `storeUrlIos` is er bewust geen standaardwaarde: een App Store-link bevat
+een nummer dat Apple pas bij de eerste release toekent. Staat het veld leeg,
+dan toont het updatescherm op iOS geen knop. Vul het dus in zodra de app in de
+App Store staat.
 
 Bestaat het document niet, dan blokkeert er niets. Mislukt het ophalen (geen
 verbinding, timeout van 5 seconden), dan wordt de gebruiker **doorgelaten** —

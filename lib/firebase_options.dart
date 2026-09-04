@@ -55,10 +55,10 @@ class DefaultFirebaseOptions {
   );
   static const FirebaseOptions ios = FirebaseOptions(
     apiKey: 'AIzaSyBTMdWItfLFxQ4JcNcjXyb7xJNuTXsxFL8',
-    appId: '1:873333354510:ios:8090b7aee02fa8c9d34c5f',
+    appId: '1:873333354510:ios:0c1063d832edde2dd34c5f',
     messagingSenderId: '873333354510',
     projectId: 'clstr-794ed',
     storageBucket: 'clstr-794ed.firebasestorage.app',
-    iosBundleId: 'com.example.clstrApp',
+    iosBundleId: 'com.clstr.app',
   );
 }

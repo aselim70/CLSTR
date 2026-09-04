@@ -20,10 +20,17 @@
 /// `app_config`, document-ID `versie`):
 ///
 ///   minimumBuild     (number)  bijv. 12 — verplicht; hieronder blokkeren
+///   minimumBuildIos  (number)  optioneel; geldt op iOS in plaats van
+///                              `minimumBuild`, omdat de buildnummers van de
+///                              twee platforms uit aparte tellers komen
 ///   minimumVersie    (string)  bijv. "1.2.0" — alleen voor de schermtekst
 ///   bericht          (string)  optionele eigen uitleg
 ///   storeUrlAndroid  (string)  optioneel; standaard de Play Store-pagina
-///   storeUrlIos      (string)  optioneel; App Store-link
+///   storeUrlIos      (string)  optioneel; App Store-link. Hier is géén
+///                              standaard voor: een App Store-link bevat een
+///                              nummer dat Apple pas toekent bij de eerste
+///                              release. Staat het veld leeg, dan toont het
+///                              updatescherm op iOS geen knop.
 ///
 /// Zolang dat document niet bestaat, blokkeert er niets — de app werkt dan
 /// precies zoals voorheen.
@@ -128,7 +135,17 @@ Future<VersieControle> controleerAppVersie() async {
 
     // `as num` en niet `as int`: wie het veld in de Firebase Console invult,
     // krijgt er soms een double van gemaakt. Dat mag geen cast-fout geven.
-    final minimumBuild = (data['minimumBuild'] as num?)?.toInt();
+    //
+    // Twee velden en niet één, omdat de buildnummers van Android en iOS uit
+    // verschillende tellers komen: beide releaseworkflows gebruiken hun eigen
+    // GitHub-runnummer. Build 120 op Android is dus een andere release dan
+    // build 120 op iOS. Zou je met één `minimumBuild` oude Android-versies
+    // blokkeren, dan sluit je willekeurige iOS-gebruikers mee buiten. Staat
+    // `minimumBuildIos` er niet, dan geldt gewoon `minimumBuild` — zo blijft
+    // een bestaand document werken zonder dat je iets hoeft aan te passen.
+    final minimumAlgemeen = (data['minimumBuild'] as num?)?.toInt();
+    final minimumIos = (data['minimumBuildIos'] as num?)?.toInt();
+    final minimumBuild = (!kIsWeb && Platform.isIOS) ? (minimumIos ?? minimumAlgemeen) : minimumAlgemeen;
     if (minimumBuild == null || huidigeBuild >= minimumBuild) {
       return VersieControle.toegestaan(versieLabel);
     }
