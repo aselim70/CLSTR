@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'app_theme.dart';
+import 'app_helpers.dart';
 
 const Color _kNavy = Color(0xFF002169);
 const Color _kOrange = Color(0xFFFF8500);
@@ -89,7 +90,7 @@ class GebruikersBeheerPage extends StatelessWidget {
 
     if (!context.mounted) return;
     try {
-      await showDialog(
+      await toonDialoog(
         context: context,
         builder: (dialogContext) {
           return StatefulBuilder(

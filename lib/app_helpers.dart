@@ -147,3 +147,63 @@ Future<DepotToegang> laadToegestaneDepotNamen({
     return DepotToegang.mislukt('$fout');
   }
 }
+
+/// Zelfde als `showDialog()`, maar keert pas terug als het dialoogvenster
+/// écht weg is — dus ook nadat de sluit-animatie is afgelopen.
+///
+/// Waarom dit bestaat. Een dialoogvenster met invoervelden maakt zijn
+/// TextEditingControllers aan vóór het openen en ruimt ze op in een
+/// `finally` erna:
+///
+/// ```dart
+/// final naamController = TextEditingController();
+/// try {
+///   await toonDialoog(context: context, builder: ...);
+/// } finally {
+///   naamController.dispose();
+/// }
+/// ```
+///
+/// Met het gewone `showDialog()` gaat dat mis. Dat keert namelijk al terug
+/// zodra er `Navigator.pop()` is gedaan, terwijl het venster dan nog 150 ms
+/// staat weg te faden. Sluit in diezelfde 150 ms het toetsenbord — en dat
+/// gebeurt altijd, want je hebt net in een tekstveld getypt — dan verandert
+/// de schermhoogte, wordt de boom opnieuw opgebouwd inclusief dat wegfadende
+/// venster, en pakt het tekstveld een controller die er niet meer is:
+///
+///     A TextEditingController was used after being disposed.
+///
+/// Daarna volgt de echte schade: de opbouw klapt er middenin uit, en de
+/// gebruiker krijgt een rood scherm met een verwarrende vervolgfout
+/// (`'_dependents.isEmpty': is not true`) die niets met de oorzaak te maken
+/// lijkt te hebben.
+///
+/// `route.completed` wacht wél op de animatie: die is klaar zodra het
+/// venster uit de overlay is verwijderd. Daarna kan er niets meer opnieuw
+/// worden opgebouwd en is opruimen veilig.
+///
+/// Gebruik dit dus overal waar een dialoogvenster eigen controllers heeft.
+/// Voor een simpel ja/nee-venster zonder invoervelden maakt het niet uit.
+Future<T?> toonDialoog<T>({
+  required BuildContext context,
+  required WidgetBuilder builder,
+  bool barrierDismissible = true,
+}) async {
+  // rootNavigator: true — zelfde keuze als showDialog() zelf maakt, zodat een
+  // dialoogvenster boven alles komt en niet in een geneste Navigator blijft
+  // hangen.
+  final navigator = Navigator.of(context, rootNavigator: true);
+  final route = DialogRoute<T>(
+    context: context,
+    builder: builder,
+    barrierDismissible: barrierDismissible,
+    // Zonder dit meegeven verliest het venster het thema van de pagina
+    // waar het vandaan komt (kleuren, tekststijlen).
+    themes: InheritedTheme.capture(from: context, to: navigator.context),
+    traversalEdgeBehavior: TraversalEdgeBehavior.closedLoop,
+  );
+
+  final resultaat = await navigator.push<T>(route);
+  await route.completed;
+  return resultaat;
+}

@@ -27,7 +27,7 @@ class _PersonenPageState extends State<PersonenPage> {
     final formKey = GlobalKey<FormState>();
 
     try {
-      await showDialog(
+      await toonDialoog(
         context: context,
         builder: (dialogContext) {
           return AlertDialog(

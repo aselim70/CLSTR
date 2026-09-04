@@ -61,7 +61,7 @@ class AlleDepotsPage extends StatelessWidget {
     String geselecteerdCluster = clusterOpties.first.key;
 
     try {
-      await showDialog(
+      await toonDialoog(
         context: context,
         builder: (dialogContext) {
           return StatefulBuilder(

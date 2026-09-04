@@ -21,7 +21,7 @@ class ClustersBeheerPage extends StatelessWidget {
 
     final String? nieuweNaam;
     try {
-      nieuweNaam = await showDialog<String>(
+      nieuweNaam = await toonDialoog<String>(
         context: context,
         builder: (dialogContext) => AlertDialog(
           title: const Text('Bedrijfsnaam wijzigen'),
@@ -60,7 +60,7 @@ class ClustersBeheerPage extends StatelessWidget {
     final formKey = GlobalKey<FormState>();
 
     try {
-      await showDialog(
+      await toonDialoog(
         context: context,
         builder: (dialogContext) => AlertDialog(
           title: Text(docId == null ? 'Cluster toevoegen' : 'Cluster hernoemen'),

@@ -43,7 +43,7 @@ class SuperadminBedrijvenPage extends StatelessWidget {
     String? foutmelding;
 
     try {
-      await showDialog(
+      await toonDialoog(
         context: context,
         builder: (dialogContext) {
           return StatefulBuilder(
@@ -148,7 +148,7 @@ class SuperadminBedrijvenPage extends StatelessWidget {
 
     final String? nieuweNaam;
     try {
-      nieuweNaam = await showDialog<String>(
+      nieuweNaam = await toonDialoog<String>(
         context: context,
         builder: (dialogContext) => AlertDialog(
           title: const Text('Bedrijfsnaam wijzigen'),
@@ -188,7 +188,7 @@ class SuperadminBedrijvenPage extends StatelessWidget {
 
     final String? email;
     try {
-      email = await showDialog<String>(
+      email = await toonDialoog<String>(
         context: context,
         builder: (dialogContext) => AlertDialog(
           title: const Text('Account promoveren tot Superadmin'),
