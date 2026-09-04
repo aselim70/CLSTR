@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Privacyverklaring — CLSTR</title>
+<style>
+  :root {
+    --inkt: #16213a;
+    --gedempt: #5a6478;
+    --lijn: #dfe3ec;
+    --grond: #ffffff;
+    --accent: #002169;
+    --kader: #f2f4f9;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --inkt: #e8ecf5;
+      --gedempt: #a3adc0;
+      --lijn: #2b3346;
+      --grond: #111726;
+      --accent: #9db6ff;
+      --kader: #182033;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--grond);
+    color: var(--inkt);
+    font: 16px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  main { max-width: 44rem; margin: 0 auto; padding: 3rem 1.25rem 5rem; }
+  h1 { font-size: 1.9rem; line-height: 1.2; margin: 0 0 .4rem; letter-spacing: -.01em; }
+  h2 { font-size: 1.15rem; margin: 2.4rem 0 .6rem; letter-spacing: -.005em; }
+  p, li { color: var(--inkt); }
+  ul { padding-left: 1.2rem; }
+  li { margin: .35rem 0; }
+  .datum { color: var(--gedempt); font-size: .9rem; margin: 0 0 2rem; }
+  .kader {
+    background: var(--kader);
+    border: 1px solid var(--lijn);
+    border-radius: 10px;
+    padding: 1rem 1.25rem;
+    margin: 1.5rem 0;
+  }
+  a { color: var(--accent); }
+  footer {
+    margin-top: 3.5rem; padding-top: 1.25rem;
+    border-top: 1px solid var(--lijn);
+    color: var(--gedempt); font-size: .9rem;
+  }
+</style>
+</head>
+<body>
+<main>
+
+<h1>Privacyverklaring CLSTR</h1>
+<p class="datum">Laatst bijgewerkt: 4 september 2026</p>
+
+<p>Deze verklaring gaat over de mobiele app <strong>CLSTR</strong> (pakketnaam
+<code>com.clstr.app</code>). Hij legt uit welke gegevens de app opslaat, waarom dat
+gebeurt en wie erbij kan.</p>
+
+<h2>1. Wie is verantwoordelijk</h2>
+<p>De app wordt ontwikkeld en beheerd onder de naam <strong>CLSTR</strong> door een
+zelfstandig ontwikkelaar, te bereiken op
+<a href="mailto:aselimmcan@gmail.com">aselimmcan@gmail.com</a>.</p>
+<p>De gegevens in de app worden ingevoerd door het bedrijf dat de app gebruikt — de
+werkgever van de planners en chauffeurs. Dat bedrijf bepaalt wat er wordt vastgelegd
+en is daarmee verwerkingsverantwoordelijke. De ontwikkelaar verwerkt die gegevens
+uitsluitend in opdracht van dat bedrijf.</p>
+
+<h2>2. Welke gegevens worden opgeslagen</h2>
+<ul>
+  <li><strong>Accountgegevens</strong> — je e-mailadres en wachtwoord, je rol (hoofdaccount
+      of sub-account), bij welk bedrijf je hoort en welke clusters aan je zijn
+      toegewezen. Het wachtwoord wordt versleuteld bewaard door Firebase
+      Authentication en is voor niemand leesbaar, ook niet voor ons.</li>
+  <li><strong>Namen van chauffeurs</strong> die een beheerder in de app invoert.</li>
+  <li><strong>Bedrijfsgegevens</strong> — clusters, depots en routes.</li>
+  <li><strong>Dagplanning</strong> — per dag en per route: welke chauffeur is gekoppeld,
+      de starttijd en de eindtijd.</li>
+  <li><strong>Technische gegevens</strong> die Google vastlegt bij het verbinden met
+      Firebase, zoals je IP-adres en het tijdstip. Die gebruikt Google om misbruik
+      tegen te gaan.</li>
+</ul>
+
+<div class="kader">
+  <p style="margin:0"><strong>Wat de app níet doet.</strong> CLSTR vraagt geen enkele
+  bijzondere toestemming op je telefoon. Er wordt geen locatie bijgehouden, geen
+  toegang gevraagd tot contacten, camera, microfoon of bestanden, en er is geen
+  advertentie-identificatie. De app bevat geen advertenties en geen trackers.</p>
+</div>
+
+<h2>3. Waarvoor worden ze gebruikt</h2>
+<ul>
+  <li>Inloggen en bepalen welke schermen en welke clusters je mag zien.</li>
+  <li>Vastleggen en tonen wie welke rit rijdt, en op welke tijden.</li>
+  <li>Rapportages en overzichten maken over een gekozen periode.</li>
+  <li>Ondersteuning bij storingen.</li>
+</ul>
+<p>De gegevens worden niet verkocht, niet gedeeld met adverteerders en niet gebruikt
+om profielen op te bouwen.</p>
+
+<h2>4. Grondslag</h2>
+<p>De verwerking is nodig voor de uitvoering van de overeenkomst tussen het bedrijf en de
+ontwikkelaar van CLSTR, en voor het gerechtvaardigd belang van dat bedrijf om zijn
+dagelijkse ritten te kunnen plannen en achteraf te kunnen verantwoorden.</p>
+
+<h2>5. Wie kan erbij</h2>
+<ul>
+  <li>Alleen accounts van hetzelfde bedrijf zien elkaars gegevens. Die scheiding is
+      technisch afgedwongen in de database, niet alleen in het scherm.</li>
+  <li>Een sub-account ziet uitsluitend de clusters die eraan zijn toegewezen.</li>
+  <li>De ontwikkelaar van CLSTR kan bij de gegevens voor onderhoud en het oplossen van
+      storingen.</li>
+  <li>Verder krijgt niemand toegang, behalve als de wet dat verplicht.</li>
+</ul>
+
+<h2>6. Waar staan de gegevens</h2>
+<p>De app draait op Google Firebase. De database staat in de regio
+<strong>europe-west4</strong> (Nederland). Een deel van de verwerking — het inloggen zelf
+en het aanmaken of verwijderen van accounts — loopt via servers van Google buiten de
+Europese Unie. Google doet dat op basis van de standaardbepalingen inzake
+gegevensbescherming van de Europese Commissie.</p>
+
+<h2>7. Hoe lang worden ze bewaard</h2>
+<p>Accountgegevens blijven bestaan zolang het account bestaat. Verwijdert een beheerder
+een account, dan worden de inloggegevens verwijderd.</p>
+<p>Dagplanningen blijven bewaard, ook nadat de bijbehorende route is verwijderd, zodat
+rapportages over eerdere periodes kloppen. Op verzoek van het bedrijf worden ze
+verwijderd.</p>
+
+<h2>8. Beveiliging</h2>
+<ul>
+  <li>Al het verkeer tussen de app en de server gaat versleuteld (https/TLS).</li>
+  <li>Wachtwoorden worden gehasht opgeslagen door Firebase Authentication.</li>
+  <li>Toegangsregels op de database bepalen per bedrijf en per cluster wie wat mag zien.</li>
+  <li>Accounts aanmaken, wijzigen en verwijderen kan alleen via de server, niet vanuit
+      de app zelf.</li>
+</ul>
+
+<h2>9. Je rechten</h2>
+<p>Je hebt het recht om je gegevens in te zien, te laten corrigeren of te laten
+verwijderen, en om bezwaar te maken tegen de verwerking.</p>
+<p>Gebruik je CLSTR via je werkgever? Meld je dan eerst bij de beheerder van je eigen
+bedrijf — die kan je account en je gegevens direct aanpassen of verwijderen. Kom je er
+zo niet uit, mail dan naar
+<a href="mailto:aselimmcan@gmail.com">aselimmcan@gmail.com</a>.</p>
+<p>Je kunt daarnaast een klacht indienen bij de Autoriteit Persoonsgegevens.</p>
+
+<h2>10. Wijzigingen</h2>
+<p>Verandert er iets aan de app of aan deze verklaring, dan komt de nieuwe versie op deze
+pagina te staan, met een nieuwe datum bovenaan.</p>
+
+<h2>11. Contact</h2>
+<p>CLSTR<br>
+<a href="mailto:aselimmcan@gmail.com">aselimmcan@gmail.com</a></p>
+
+<footer>CLSTR — routeplanning per bedrijf en cluster.</footer>
+
+</main>
+</body>
+</html>
