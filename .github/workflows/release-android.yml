@@ -58,9 +58,9 @@ jobs:
     name: App Bundle bouwen
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: 17
@@ -141,7 +141,7 @@ jobs:
           fi
 
       - name: Bundle als download klaarzetten
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: clstr-${{ steps.versie.outputs.build }}-aab
           path: build/app/outputs/bundle/release/app-release.aab
