@@ -1,0 +1,102 @@
+name: Deploy Firebase
+
+# Rolt de backend uit: Firestore-regels, Firestore-indexen en Cloud Functions.
+# Dit is het deel dat gebruikers binnen seconden merken, zonder app-update.
+#
+# Bewust alleen met de hand te starten (Actions -> "Deploy Firebase" ->
+# "Run workflow"). Een verkeerde regel in firestore.rules kan iedereen in één
+# klap buitensluiten; dat wil je niet als bijverschijnsel van een push.
+#
+# EENMALIG IN TE STELLEN — GitHub -> Settings -> Secrets and variables ->
+# Actions -> "New repository secret":
+#
+#   FIREBASE_SERVICE_ACCOUNT   de volledige JSON-sleutel van een
+#                              serviceaccount in het project clstr-794ed.
+#
+# Zo'n sleutel maak je in de Google Cloud Console -> IAM & Beheer ->
+# Serviceaccounts -> Sleutels -> Nieuwe sleutel (JSON). Geef het account de
+# rollen "Firebase Admin" en "Cloud Functions Admin", plus "Serviceaccount-
+# gebruiker" (die laatste is nodig omdat het uitrollen van een function
+# namens een ander account draait).
+#
+# Deze sleutel geeft volledige toegang tot je Firebase-project. Bewaar hem
+# alleen als GitHub-secret, nooit in de repo.
+
+on:
+  workflow_dispatch:
+    inputs:
+      onderdelen:
+        description: 'Wat uitrollen'
+        type: choice
+        default: 'firestore:rules,firestore:indexes,functions'
+        options:
+          - 'firestore:rules,firestore:indexes,functions'
+          - 'firestore:rules'
+          - 'firestore:indexes'
+          - 'functions'
+
+jobs:
+  uitrollen:
+    name: Uitrollen naar clstr-794ed
+    runs-on: ubuntu-latest
+
+    # Wil je hier nog een handmatige goedkeuring vóór zetten, maak dan in
+    # Settings -> Environments een omgeving "productie" aan met "Required
+    # reviewers" en haal het commentaarteken hieronder weg.
+    # environment: productie
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: functions/package-lock.json
+
+      - name: Inloggen bij Firebase
+        env:
+          SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: |
+          if [ -z "$SERVICE_ACCOUNT" ]; then
+            echo "::error::Secret FIREBASE_SERVICE_ACCOUNT ontbreekt. Zie de uitleg bovenaan dit bestand."
+            exit 1
+          fi
+          # Buiten de werkmap wegschrijven, zodat het bestand nooit per
+          # ongeluk mee kan komen in een build-artefact of een commit.
+          echo "$SERVICE_ACCOUNT" > "$RUNNER_TEMP/sleutel.json"
+          echo "GOOGLE_APPLICATION_CREDENTIALS=$RUNNER_TEMP/sleutel.json" >> "$GITHUB_ENV"
+
+      - name: Dependencies van de functions installeren
+        run: npm ci
+        working-directory: functions
+
+      - name: Syntaxcontrole vóór het uitrollen
+        run: node --check index.js
+        working-directory: functions
+
+      - name: Uitrollen
+        env:
+          ONDERDELEN: ${{ inputs.onderdelen }}
+        run: |
+          # Vastgezet op versie 15 (gelijk aan wat er lokaal draait) en niet op
+          # @latest: anders kan een nieuwe hoofdversie van de Firebase CLI je
+          # uitrol laten mislukken op een moment dat je er niets aan veranderd
+          # hebt. Verhoog dit bewust, samen met je lokale CLI.
+          #
+          # Géén --force: zonder die vlag stopt de CLI als het uitrollen zou
+          # betekenen dat er een bestaande Cloud Function verdwijnt. Dat wil je
+          # zien en zelf goedkeuren, niet stilzwijgend laten gebeuren.
+          npx --yes firebase-tools@15 deploy \
+            --project clstr-794ed \
+            --only "$ONDERDELEN" \
+            --non-interactive
+
+      - name: Samenvatting
+        run: |
+          echo "### Backend uitgerold" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Project: clstr-794ed" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Onderdelen: \`${{ inputs.onderdelen }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Dit is meteen live bij alle gebruikers. Zijn er wijzigingen bij die oudere app-versies breken? Zet dan \`minimumBuild\` in Firestore (\`app_config/versie\`) omhoog." >> "$GITHUB_STEP_SUMMARY"

@@ -8,6 +8,7 @@ import 'firebase_options.dart';
 import 'login_screen.dart';
 import 'app_theme.dart';
 import 'splash_screen.dart';
+import 'versie_check.dart';
 import 'vertrek_animatie_page.dart';
 import 'superadmin_bedrijven_page.dart';
 
@@ -17,11 +18,22 @@ const Color kOrange = Color(0xFFFF8500);
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
-  runApp(const MyApp());
+
+  // Bewust hier gestart en NIET afgewacht: de opvraging loopt zo parallel aan
+  // de splash-animatie, die toch al ~2,2 seconden duurt. Het splash-scherm
+  // wacht verderop alsnog op deze Future voordat het doorschakelt, dus de
+  // controle kost in de praktijk geen extra opstarttijd.
+  final versieControle = controleerAppVersie();
+
+  runApp(MyApp(versieControle: versieControle));
 }
 
 class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+  /// Zie [controleerAppVersie]. Wordt in `main()` gestart en hier alleen
+  /// doorgegeven — nooit in `build()` aanmaken, want die draait vaker.
+  final Future<VersieControle> versieControle;
+
+  const MyApp({super.key, required this.versieControle});
 
   @override
   Widget build(BuildContext context) {
@@ -83,7 +95,7 @@ class MyApp extends StatelessWidget {
       builder: (context, child) {
         return MediaQuery(data: MediaQuery.of(context).copyWith(alwaysUse24HourFormat: true), child: child!);
       },
-      home: SplashScreen(volgendeScherm: const _AuthGate()),
+      home: SplashScreen(volgendeScherm: const _AuthGate(), versieControle: versieControle),
     );
   }
 }

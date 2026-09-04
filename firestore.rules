@@ -155,6 +155,29 @@ service cloud.firestore {
       allow update, delete: if isSuperadmin() || (ingelogd() && huidigeGebruiker().get('bedrijfId', null) == resource.data.get('bedrijfId', null));
     }
 
+    // --- app_config (minimaal vereiste app-versie) ------------------------
+    // Bevat één document: 'versie', met o.a. het veld 'minimumBuild'. De app
+    // leest dat bij het opstarten (zie lib/versie_check.dart) om te bepalen of
+    // de installatie nog nieuw genoeg is voor deze backend.
+    //
+    // Lezen mag OOK zonder ingelogd te zijn. Dat is expres: de controle draait
+    // vóór het inlogscherm, want juist een te oude app kan al bij het inloggen
+    // stukgaan. Zou hier `ingelogd()` staan, dan zou de opvraging op het
+    // splash-scherm altijd op een permission-denied stuiten en zou de hele
+    // controle nooit werken.
+    //
+    // Dat dit publiek leesbaar is, is geen bezwaar: er staat niets in behalve
+    // een versienummer en een store-link — precies de informatie die ook in de
+    // Play Store staat. De collectie bevat verder geen bedrijfs- of
+    // gebruikersgegevens, dus houd dat zo.
+    //
+    // Schrijven mag alleen de superadmin, en in de praktijk doe je dat gewoon
+    // met de hand in de Firebase Console bij het uitbrengen van een release.
+    match /app_config/{document} {
+      allow read: if true;
+      allow write: if isSuperadmin();
+    }
+
     // Alles wat hierboven niet expliciet is toegestaan, wordt automatisch
     // geweigerd door Firestore (geen aparte "deny all" regel nodig).
   }

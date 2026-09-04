@@ -1,0 +1,60 @@
+name: CI
+
+# Draait bij elke push naar main en bij elke pull request.
+#
+# Deze workflow controleert alleen — hij rolt bewust NIETS uit. Uitrollen
+# gebeurt in release-android.yml en deploy-firebase.yml, en die start je met
+# de hand. Zo kan een gewone push nooit per ongeluk iets live zetten bij
+# gebruikers of in de Firestore-regels.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  app:
+    name: App analyseren en testen
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          # Houd dit gelijk aan wat `flutter --version` lokaal zegt, anders
+          # kan CI groen zijn terwijl een lokale build faalt (of andersom).
+          flutter-version: 3.44.x
+          channel: stable
+          cache: true
+
+      - run: flutter pub get
+
+      - run: flutter analyze
+
+      - run: flutter test
+
+      # Bewust GEEN `dart format --set-exit-if-changed`: de bestaande code is
+      # met langere regels geschreven dan de standaard van 80 tekens, dus zo'n
+      # controle zou meteen op vrijwel elk bestand afgaan. Wil je dat alsnog,
+      # formatteer dan eerst het hele project in één aparte commit.
+
+  functions:
+    name: Cloud Functions controleren
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: functions/package-lock.json
+
+      - run: npm ci
+        working-directory: functions
+
+      # Er is (nog) geen lint of test voor de functions. Deze twee stappen
+      # vangen wel precies de twee fouten die een deploy laten mislukken
+      # nádat je al op "uitrollen" hebt gedrukt: dependencies die niet
+      # installeerbaar zijn, en een syntaxfout in index.js.
+      - run: node --check index.js
+        working-directory: functions

@@ -39,6 +39,8 @@ dependencies:
   intl: ^0.20.3
   pdf: ^3.13.0
   printing: ^5.15.0
+  package_info_plus: ^10.2.1
+  url_launcher: ^6.3.2
 dev_dependencies:
   flutter_test:
     sdk: flutter

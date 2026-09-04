@@ -1,17 +1,69 @@
-# clstr_app
+# CLSTR
 
-A new Flutter project.
+Flutter-app voor het plannen en bijhouden van bezorgroutes, per bedrijf en per
+cluster. Backend draait op Firebase (Firestore, Authentication, Cloud
+Functions) in project `clstr-794ed`.
 
-## Getting Started
+Rollen: **superadmin** (beheert alle bedrijven), **admin** (beheert één
+bedrijf) en **subaccount** (ziet alleen de toegewezen clusters).
 
-This project is a starting point for a Flutter application.
+## Aan de slag
 
-A few resources to get you started if this is your first Flutter project:
+```bash
+flutter pub get
+flutter run
+```
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
+Voor een release-build heb je `android/key.properties` nodig met de
+signing-gegevens. Dat bestand staat bewust niet in git. Ontbreekt het, dan
+bouwt de app nog steeds, maar met de debug-sleutel — Google Play weigert zo'n
+bundle.
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+Controleren vóór het committen:
+
+```bash
+flutter analyze
+flutter test
+```
+
+## Updaten: drie lagen, drie snelheden
+
+| Wat je wijzigt | Hoe het live komt | Hoe snel |
+| --- | --- | --- |
+| `firestore.rules`, `firestore.indexes.json`, `functions/` | `firebase deploy` of Actions → Deploy Firebase | seconden |
+| `lib/` (de app zelf) | Actions → Release Android → Play Store | dagen |
+| Gegevens (bedrijven, clusters, routes) | via de beheerschermen in de app | direct |
+
+Omdat de backend veel sneller vernieuwt dan de app, draaien er altijd tijdelijk
+oude app-versies tegen een nieuwe backend. De app controleert daarom bij het
+opstarten het Firestore-document `app_config/versie`: staat daar een
+`minimumBuild` hoger dan de geïnstalleerde versie, dan krijgt de gebruiker een
+updatescherm in plaats van onverklaarbare fouten.
+
+Hoog dat veld dus op zodra je iets in de backend wijzigt dat oudere
+app-versies breekt.
+
+## Een nieuwe versie uitbrengen
+
+```bash
+dart run tool/bump_versie.dart patch   # of minor / major
+git commit -am "Versie 1.0.1"
+git push
+```
+
+Daarna op GitHub: **Actions → Release Android → Run workflow**. De workflow
+bouwt een ondertekende App Bundle en meldt aan het eind welk buildnummer het
+geworden is.
+
+De benodigde GitHub-secrets staan beschreven bovenaan
+[.github/workflows/release-android.yml](.github/workflows/release-android.yml)
+en [.github/workflows/deploy-firebase.yml](.github/workflows/deploy-firebase.yml).
+
+iOS bouwen kan alleen op een Mac; de configuratie zit al in het project.
+
+## Meer
+
+[CLAUDE.md](CLAUDE.md) bevat de projectconventies, de uitrolprocedure in detail
+en de valkuilen die eerder al eens tot bugs hebben geleid (zomertijd bij
+datumberekeningen, de `whereIn`-limiet van Firestore, foutafhandeling bij
+schrijfacties).

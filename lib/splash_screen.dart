@@ -1,16 +1,28 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'app_theme.dart';
+import 'versie_check.dart';
 
 /// Opstartscherm dat kort te zien is zodra de app opent: het CLSTR-logo
 /// verschijnt terwijl een pakketbusje het scherm in "rijdt", op de blauwe
-/// achtergrond. Puur decoratief - de eigenlijke inlog-check (StreamBuilder
-/// in main.dart) draait gewoon op de achtergrond door, dit scherm zorgt er
-/// alleen voor dat de opstart altijd rustig en bewust oogt in plaats van een
-/// flits van een wit scherm.
+/// achtergrond. Grotendeels decoratief - de eigenlijke inlog-check
+/// (StreamBuilder in main.dart) draait gewoon op de achtergrond door, dit
+/// scherm zorgt er alleen voor dat de opstart altijd rustig en bewust oogt in
+/// plaats van een flits van een wit scherm.
+///
+/// Eén functionele taak heeft het wél: de versiecontrole uit
+/// [controleerAppVersie] wordt hier afgewacht. Die tijd valt weg tegen de
+/// animatie die er toch al is, dus dit is de goedkoopste plek om te
+/// controleren of de app nog bij de backend past.
 class SplashScreen extends StatefulWidget {
   final Widget volgendeScherm;
-  const SplashScreen({super.key, required this.volgendeScherm});
+
+  /// De in `main()` gestarte versiecontrole. Optioneel, zodat dit scherm ook
+  /// los (bijv. in een test) te gebruiken is; is hij null, dan wordt er niet
+  /// gecontroleerd en gaat de app gewoon door.
+  final Future<VersieControle>? versieControle;
+
+  const SplashScreen({super.key, required this.volgendeScherm, this.versieControle});
 
   @override
   State<SplashScreen> createState() => _SplashScreenState();
@@ -47,21 +59,39 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
 
     _controller.forward();
 
+    _schakelDoor();
+  }
+
+  /// Wacht op twee dingen tegelijk en gaat pas verder als ze allebei klaar
+  /// zijn: de minimale weergavetijd van de animatie, en de versiecontrole.
+  ///
+  /// De volgorde is bewust zo: de timer wordt eerst gestart en pas daarna
+  /// wordt op de controle gewacht, zodat ze naast elkaar lopen. De langzaamste
+  /// van de twee bepaalt de opstarttijd — in de praktijk is dat vrijwel altijd
+  /// de animatie, en kost de controle dus niets.
+  Future<void> _schakelDoor() async {
     // Minimaal ~2,2 seconden laten zien, ongeacht hoe snel het inloggen
     // achter de schermen al klaar is - zo oogt de opstart altijd bewust,
     // niet als een flits.
-    Timer(const Duration(milliseconds: 2200), () {
-      if (!mounted) return;
-      Navigator.of(context).pushReplacement(
-        PageRouteBuilder(
-          transitionDuration: const Duration(milliseconds: 400),
-          pageBuilder: (context, animation, secondaryAnimation) => widget.volgendeScherm,
-          transitionsBuilder: (context, animation, secondaryAnimation, child) {
-            return FadeTransition(opacity: animation, child: child);
-          },
-        ),
-      );
-    });
+    final minimaleWeergave = Future<void>.delayed(const Duration(milliseconds: 2200));
+
+    final controle = await widget.versieControle;
+    await minimaleWeergave;
+    if (!mounted) return;
+
+    final doel = (controle != null && controle.updateVereist)
+        ? UpdateVereistScherm(controle: controle, volgendeScherm: widget.volgendeScherm)
+        : widget.volgendeScherm;
+
+    Navigator.of(context).pushReplacement(
+      PageRouteBuilder(
+        transitionDuration: const Duration(milliseconds: 400),
+        pageBuilder: (context, animation, secondaryAnimation) => doel,
+        transitionsBuilder: (context, animation, secondaryAnimation, child) {
+          return FadeTransition(opacity: animation, child: child);
+        },
+      ),
+    );
   }
 
   @override

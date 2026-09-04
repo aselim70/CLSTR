@@ -1,0 +1,182 @@
+name: Release Android
+
+# Bouwt een ondertekende Android App Bundle (.aab) en zet die klaar. Start je
+# altijd met de hand (tabblad "Actions" op GitHub -> "Release Android" ->
+# "Run workflow"), zodat een gewone push nooit een release veroorzaakt.
+#
+# EENMALIG IN TE STELLEN — GitHub -> Settings -> Secrets and variables ->
+# Actions -> "New repository secret":
+#
+#   ANDROID_KEYSTORE_BASE64   je .jks-bestand, base64-gecodeerd. Maken met:
+#                               certutil -encode jouw.jks keystore.txt
+#                             (PowerShell) en dan de regels tussen de BEGIN/END
+#                             uit dat bestand plakken. Of, in Git Bash:
+#                               base64 -w0 jouw.jks > keystore.txt
+#   ANDROID_KEYSTORE_PASSWORD  = storePassword uit android/key.properties
+#   ANDROID_KEY_PASSWORD       = keyPassword uit android/key.properties
+#   ANDROID_KEY_ALIAS          = keyAlias uit android/key.properties
+#
+# Optioneel, alleen nodig als je ook automatisch naar Google Play wilt
+# uploaden in plaats van het .aab-bestand zelf te downloaden:
+#
+#   PLAY_SERVICE_ACCOUNT_JSON  de JSON-sleutel van een serviceaccount met
+#                              "Release manager"-rechten in de Play Console.
+#
+# Zonder dat laatste secret werkt deze workflow gewoon: hij bouwt het bestand
+# en hangt het als download-artefact aan de run. Je uploadt het dan zelf in de
+# Play Console.
+#
+# LET OP: de allereerste upload van een app naar Google Play moet je sowieso
+# met de hand doen. Pas daarna kan de API het overnemen.
+
+on:
+  workflow_dispatch:
+    inputs:
+      versienaam:
+        description: 'Versienaam, bijv. 1.1.0 (leeg = uit pubspec.yaml)'
+        type: string
+        required: false
+      track:
+        description: 'Naar welke Play-track uploaden (alleen met PLAY_SERVICE_ACCOUNT_JSON)'
+        type: choice
+        default: internal
+        options: [internal, alpha, beta, production]
+
+env:
+  # Google Play weigert een upload met een buildnummer (versionCode) dat al
+  # eens gebruikt is — ook als die versie allang is ingetrokken. Het
+  # run-nummer van GitHub Actions loopt gegarandeerd op en kan nooit
+  # teruglopen, dus dat is een veilige bron. Het begint alleen bij 1, en
+  # buildnummer 1 is lokaal al vergeven (pubspec.yaml staat op 1.0.0+1).
+  # Vandaar deze offset: de eerste CI-build wordt 101 en zit daarmee ruim
+  # boven alles wat er met de hand is gebouwd. Verhoog dit getal als je ooit
+  # een hoger nummer met de hand uploadt.
+  BUILD_NUMMER_OFFSET: 100
+
+jobs:
+  bouwen:
+    name: App Bundle bouwen
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.44.x
+          channel: stable
+          cache: true
+
+      - name: Buildnummer bepalen
+        id: versie
+        run: |
+          echo "build=$(( ${{ github.run_number }} + BUILD_NUMMER_OFFSET ))" >> "$GITHUB_OUTPUT"
+
+      - name: Keystore uitpakken
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            echo "::error::Secret ANDROID_KEYSTORE_BASE64 ontbreekt. Zonder keystore wordt de app met de debug-sleutel ondertekend en weigert Google Play de upload. Zie de uitleg bovenaan dit bestand."
+            exit 1
+          fi
+          echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/clstr.jks"
+          # Zelfde vier sleutels als in het lokale android/key.properties; de
+          # build.gradle.kts leest dit bestand en pakt anders de debug-sleutel.
+          {
+            echo "storePassword=$STORE_PASSWORD"
+            echo "keyPassword=$KEY_PASSWORD"
+            echo "keyAlias=$KEY_ALIAS"
+            echo "storeFile=$RUNNER_TEMP/clstr.jks"
+          } > android/key.properties
+
+      - run: flutter pub get
+
+      # Nog één keer analyseren en testen vlak vóór de build. CI heeft dit bij
+      # de push al gedaan, maar een release start je soms dagen later of vanaf
+      # een andere branch — dan wil je niet alsnog kapotte code uitbrengen.
+      - run: flutter analyze
+      - run: flutter test
+
+      - name: App Bundle bouwen
+        env:
+          # Via env en niet rechtstreeks in het script: alles wat je met
+          # ${{ }} midden in een shell-regel zet, wordt letterlijk in dat
+          # script geplakt vóórdat de shell het leest. Bij een vrij in te
+          # vullen veld als dit is dat een manier om commando's mee te smokkelen.
+          VERSIENAAM: ${{ inputs.versienaam }}
+          BUILD_NUMMER: ${{ steps.versie.outputs.build }}
+        run: |
+          ARGS="--build-number=$BUILD_NUMMER"
+          if [ -n "$VERSIENAAM" ]; then
+            ARGS="$ARGS --build-name=$VERSIENAAM"
+          fi
+          echo "flutter build appbundle $ARGS"
+          flutter build appbundle $ARGS
+
+      - name: Controleren dat de bundle niet met de debug-sleutel is ondertekend
+        run: |
+          BUNDLE=build/app/outputs/bundle/release/app-release.aab
+          test -f "$BUNDLE" || { echo "::error::Bundle niet gevonden op $BUNDLE"; exit 1; }
+          # De build.gradle.kts valt bewust terug op de debug-sleutel als
+          # key.properties ontbreekt, zodat lokaal bouwen altijd lukt. Hier is
+          # dat juist gevaarlijk: zo'n bundle ziet er goed uit, maar Google
+          # Play weigert hem pas bij de upload — nadat je al hebt zitten
+          # wachten. Deze controle laat het meteen zien.
+          CERT=$(keytool -printcert -jarfile "$BUNDLE" 2>&1)
+          if [ -z "$CERT" ]; then
+            echo "::error::De handtekening van de bundle kon niet gelezen worden - de controle is dus niets waard. Niet doorgaan."
+            exit 1
+          fi
+          if grep -q "CN=Android Debug" <<< "$CERT"; then
+            echo "::error::De bundle is met de DEBUG-sleutel ondertekend. Controleer de secrets ANDROID_KEYSTORE_*."
+            exit 1
+          fi
+
+      - name: Bundle als download klaarzetten
+        uses: actions/upload-artifact@v4
+        with:
+          name: clstr-${{ steps.versie.outputs.build }}-aab
+          path: build/app/outputs/bundle/release/app-release.aab
+          retention-days: 30
+
+      # Is er geen Play-serviceaccount ingesteld, dan slaan we het uploaden
+      # over in plaats van de hele run te laten falen. Het artefact hierboven
+      # staat er dan gewoon, klaar om met de hand te uploaden.
+      - name: Is uploaden naar Play mogelijk?
+        id: play
+        env:
+          PLAY_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+        run: |
+          if [ -n "$PLAY_JSON" ]; then
+            echo "beschikbaar=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "beschikbaar=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Geen PLAY_SERVICE_ACCOUNT_JSON ingesteld - de bundle staat als artefact klaar om zelf te uploaden."
+          fi
+
+      - name: Uploaden naar Google Play
+        if: steps.play.outputs.beschikbaar == 'true'
+        uses: r0adkll/upload-google-play@v1
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          packageName: com.clstr.app
+          releaseFiles: build/app/outputs/bundle/release/app-release.aab
+          track: ${{ inputs.track }}
+          status: completed
+
+      - name: Onthouden welk buildnummer dit was
+        run: |
+          echo "### Release gebouwd" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Buildnummer (versionCode): **${{ steps.versie.outputs.build }}**" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Track: ${{ inputs.track }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Wil je oudere versies blokkeren? Zet \`minimumBuild\` in Firestore (\`app_config/versie\`) op **${{ steps.versie.outputs.build }}** zodra deze release bij iedereen binnen is." >> "$GITHUB_STEP_SUMMARY"

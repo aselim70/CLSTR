@@ -41,5 +41,14 @@
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
         </intent>
+        <!-- Nodig om vanuit de app een https-link te kunnen openen (de knop
+             "Nu bijwerken" op het updatescherm, zie lib/versie_check.dart).
+             Vanaf Android 11 ziet een app standaard niet welke andere apps er
+             geïnstalleerd zijn; zonder deze declaratie weigert het systeem de
+             Play Store/browser te starten en doet die knop dus niets. -->
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <data android:scheme="https"/>
+        </intent>
     </queries>
 </manifest>
