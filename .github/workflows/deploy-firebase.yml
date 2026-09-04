@@ -14,13 +14,29 @@ name: Deploy Firebase
 #                              serviceaccount in het project clstr-794ed.
 #
 # Zo'n sleutel maak je in de Google Cloud Console -> IAM & Beheer ->
-# Serviceaccounts -> Sleutels -> Nieuwe sleutel (JSON). Geef het account de
-# rollen "Firebase Admin" en "Cloud Functions Admin", plus "Serviceaccount-
-# gebruiker" (die laatste is nodig omdat het uitrollen van een function
-# namens een ander account draait).
+# Serviceaccounts -> Sleutels -> Nieuwe sleutel (JSON).
+#
+# WELKE ROLLEN dat account nodig heeft, hangt af van wat je uitrolt:
+#
+#   Alleen firestore:rules en firestore:indexes
+#     - Firebase Admin
+#
+#   Ook functions. Let op: dit zijn Gen 2-functions
+#   (functions/index.js gebruikt firebase-functions/v2). Die worden achter de
+#   schermen als Cloud Run-container gebouwd en uitgerold, en daarvoor heeft
+#   het account ook rechten nodig op Cloud Build, Artifact Registry en Cloud
+#   Run. Met alleen de eerste drie rollen loopt de deploy vast op een
+#   permissiefout, halverwege:
+#     - Firebase Admin
+#     - Cloud Functions Admin
+#     - Serviceaccount-gebruiker   (functions draaien namens een ander account)
+#     - Cloud Run Admin
+#     - Artifact Registry-beheerder
+#     - Cloud Build-editor
 #
 # Deze sleutel geeft volledige toegang tot je Firebase-project. Bewaar hem
-# alleen als GitHub-secret, nooit in de repo.
+# alleen als GitHub-secret, nooit in de repo, en verwijder het gedownloade
+# JSON-bestand van je pc zodra je hem geplakt hebt.
 
 on:
   workflow_dispatch:
