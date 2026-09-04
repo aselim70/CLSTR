@@ -9,6 +9,17 @@ tikken. Ze schrijven rechtstreeks in Firestore met de Admin SDK.
 > klant. Daarom is een droogloop de standaard en moet je `--schrijf`
 > expliciet meegeven.
 
+## Volgorde bij een nieuw bedrijf
+
+Deze scripts zijn de **laatste** stap van het onboarden. Eerst dit, in de app:
+
+1. **Bedrijf + admin aanmaken** — scherm *Bedrijven (Superadmin)*.
+2. **Clusters aanmaken** — scherm *Bedrijf & clusters beheren*.
+3. **Depots aanmaken** — scherm *Depots*.
+4. **Dan pas importeren.** Chauffeurs mag eerder (die hangen alleen aan het
+   bedrijf), maar routes niet: het script zoekt het `clusterId` op bij het
+   depot, dus zonder depots stopt het meteen.
+
 ## Eenmalig klaarzetten
 
 ```bash
@@ -16,14 +27,21 @@ cd tool/import
 npm install
 ```
 
+Dat moet op **elke machine** waar je de scripts draait: `node_modules/` staat
+in `.gitignore` en gaat dus niet mee in git.
+
 En inloggen, op één van deze twee manieren:
 
-- **Servicesleutel** (aanrader): download in de Firebase Console onder
-  Projectinstellingen → Serviceaccounts een sleutel-JSON en geef die mee met
-  `--sleutel=pad/naar/sleutel.json`. Zet dat bestand **buiten de repo** — het
-  geeft volledige toegang tot de database van alle bedrijven.
+- **Servicesleutel** (aanrader): Firebase Console → Projectinstellingen →
+  Serviceaccounts → nieuwe privésleutel genereren. Die JSON geef je mee met
+  `--sleutel=pad/naar/sleutel.json`. Bewaar het bestand **buiten de repo** —
+  het geeft volledige toegang tot de database van alle bedrijven.
 - **Je eigen Google-account**: `gcloud auth application-default login`. Werkt
   alleen als dat account rechten heeft op het project `clstr-794ed`.
+
+Het `<bedrijfId>` hieronder is de document-ID uit de collectie `bedrijven`.
+Weet je hem niet uit je hoofd, vul dan iets willekeurigs in: het script stopt
+dan en toont de lijst met bestaande bedrijven.
 
 ## Chauffeurs toevoegen
 
