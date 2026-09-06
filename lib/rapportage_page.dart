@@ -43,13 +43,34 @@ class RapportagePage extends StatefulWidget {
 class _RapportagePageState extends State<RapportagePage> {
   String _weergave = 'week';
   DateTime _referentieDatum = alleenDatum(DateTime.now());
+  // Alleen gevuld zodra de gebruiker zelf een periode kiest ('aangepast').
+  DateTimeRange? _eigenBereik;
   Set<String>? _geselecteerd;
   DepotToegang? _toegang;
+  bool _zoekModusActief = false;
+  String _zoekTerm = '';
+  final TextEditingController _zoekController = TextEditingController();
 
   @override
   void initState() {
     super.initState();
     _laadToegestaneDepots();
+  }
+
+  @override
+  void dispose() {
+    _zoekController.dispose();
+    super.dispose();
+  }
+
+  void _zoekModusWisselen() {
+    setState(() {
+      if (_zoekModusActief) {
+        _zoekController.clear();
+        _zoekTerm = '';
+      }
+      _zoekModusActief = !_zoekModusActief;
+    });
   }
 
   Future<void> _laadToegestaneDepots() async {
@@ -65,25 +86,62 @@ class _RapportagePageState extends State<RapportagePage> {
   DateTime _maandStart(DateTime d) => DateTime(d.year, d.month, 1);
   DateTime _maandEind(DateTime d) => DateTime(d.year, d.month + 1, 0);
 
-  void _vorigePeriode() {
+  /// Het bereik dat bij een zelfgekozen periode hoort. Zolang de gebruiker nog
+  /// niets koos vallen we terug op de laatste zeven dagen, zodat het scherm
+  /// nooit leeg staat te wachten op een keuze.
+  DateTimeRange get _huidigEigenBereik {
+    final vandaag = alleenDatum(DateTime.now());
+    return _eigenBereik ?? DateTimeRange(start: plusDagen(vandaag, -6), end: vandaag);
+  }
+
+  /// Bij een zelfgekozen periode schuiven de pijlen met de lengte van die
+  /// periode op, net als in de routegeschiedenis.
+  int get _eigenPeriodeLengte => _huidigEigenBereik.end.difference(_huidigEigenBereik.start).inDays + 1;
+
+  void _schuifPeriode(int richting) {
     setState(() {
       _geselecteerd = null;
       if (_weergave == 'week') {
-        _referentieDatum = plusDagen(_referentieDatum, -7);
+        _referentieDatum = plusDagen(_referentieDatum, 7 * richting);
+      } else if (_weergave == 'maand') {
+        _referentieDatum = DateTime(_referentieDatum.year, _referentieDatum.month + richting, 1);
       } else {
-        _referentieDatum = DateTime(_referentieDatum.year, _referentieDatum.month - 1, 1);
+        final stap = _eigenPeriodeLengte * richting;
+        final bereik = _huidigEigenBereik;
+        _eigenBereik = DateTimeRange(start: plusDagen(bereik.start, stap), end: plusDagen(bereik.end, stap));
       }
     });
   }
 
-  void _volgendePeriode() {
+  void _vorigePeriode() => _schuifPeriode(-1);
+
+  void _volgendePeriode() => _schuifPeriode(1);
+
+  /// De periode die nu op het scherm staat, ongeacht de gekozen weergave.
+  /// Daarmee opent de kalender op wat de gebruiker net bekeek.
+  DateTimeRange get _zichtbarePeriode {
+    if (_weergave == 'week') {
+      return DateTimeRange(start: weekStart(_referentieDatum), end: weekEind(_referentieDatum));
+    } else if (_weergave == 'maand') {
+      return DateTimeRange(start: _maandStart(_referentieDatum), end: _maandEind(_referentieDatum));
+    }
+    return _huidigEigenBereik;
+  }
+
+  Future<void> _kiesEigenPeriode() async {
+    final gekozen = await showDateRangePicker(
+      context: context,
+      initialDateRange: _zichtbarePeriode,
+      firstDate: DateTime(2020),
+      lastDate: DateTime(2100),
+      helpText: 'Kies begin- en einddatum',
+      saveText: 'Kiezen',
+    );
+    if (gekozen == null || !mounted) return;
     setState(() {
+      _weergave = 'aangepast';
       _geselecteerd = null;
-      if (_weergave == 'week') {
-        _referentieDatum = plusDagen(_referentieDatum, 7);
-      } else {
-        _referentieDatum = DateTime(_referentieDatum.year, _referentieDatum.month + 1, 1);
-      }
+      _eigenBereik = DateTimeRange(start: alleenDatum(gekozen.start), end: alleenDatum(gekozen.end));
     });
   }
 
@@ -92,8 +150,11 @@ class _RapportagePageState extends State<RapportagePage> {
       final start = weekStart(_referentieDatum);
       final eind = weekEind(_referentieDatum);
       return 'Week van ${DateFormat('dd-MM-yyyy').format(start)} t/m ${DateFormat('dd-MM-yyyy').format(eind)}';
-    } else {
+    } else if (_weergave == 'maand') {
       return '${_maandNamen[_referentieDatum.month - 1]} ${_referentieDatum.year}';
+    } else {
+      final bereik = _huidigEigenBereik;
+      return '${DateFormat('dd-MM-yyyy').format(bereik.start)} t/m ${DateFormat('dd-MM-yyyy').format(bereik.end)}';
     }
   }
 
@@ -211,8 +272,18 @@ class _RapportagePageState extends State<RapportagePage> {
       );
     }
 
-    final periodeStart = _weergave == 'week' ? weekStart(_referentieDatum) : _maandStart(_referentieDatum);
-    final periodeEind = _weergave == 'week' ? weekEind(_referentieDatum) : _maandEind(_referentieDatum);
+    final DateTime periodeStart;
+    final DateTime periodeEind;
+    if (_weergave == 'week') {
+      periodeStart = weekStart(_referentieDatum);
+      periodeEind = weekEind(_referentieDatum);
+    } else if (_weergave == 'maand') {
+      periodeStart = _maandStart(_referentieDatum);
+      periodeEind = _maandEind(_referentieDatum);
+    } else {
+      periodeStart = _huidigEigenBereik.start;
+      periodeEind = _huidigEigenBereik.end;
+    }
     final startKey = dateKey(periodeStart);
     final eindKey = dateKey(periodeEind);
 
@@ -236,7 +307,22 @@ class _RapportagePageState extends State<RapportagePage> {
               .snapshots();
 
     return Scaffold(
-      appBar: GradientAppBar(title: const Text('Rapportage')),
+      appBar: GradientAppBar(
+        title: _zoekModusActief
+            ? TextField(
+                controller: _zoekController,
+                autofocus: true,
+                style: const TextStyle(color: Colors.white, fontSize: 18),
+                decoration: const InputDecoration(
+                  hintText: 'Zoek op naam...',
+                  hintStyle: TextStyle(color: Colors.white70),
+                  border: InputBorder.none,
+                ),
+                onChanged: (waarde) => setState(() => _zoekTerm = waarde.toLowerCase()),
+              )
+            : const Text('Rapportage'),
+        actions: [IconButton(icon: Icon(_zoekModusActief ? Icons.close : Icons.search), onPressed: _zoekModusWisselen)],
+      ),
       body: Column(
         children: [
           Padding(
@@ -245,11 +331,20 @@ class _RapportagePageState extends State<RapportagePage> {
               segments: const [
                 ButtonSegment(value: 'week', label: Text('Week')),
                 ButtonSegment(value: 'maand', label: Text('Maand')),
+                ButtonSegment(value: 'aangepast', label: Text('Periode'), icon: Icon(Icons.date_range_rounded)),
               ],
+              showSelectedIcon: false,
               selected: {_weergave},
               onSelectionChanged: (nieuweSelectie) {
+                final keuze = nieuweSelectie.first;
+                // Bij 'Periode' meteen de kalender openen: die stand heeft
+                // zonder gekozen datums geen betekenis voor de gebruiker.
+                if (keuze == 'aangepast') {
+                  _kiesEigenPeriode();
+                  return;
+                }
                 setState(() {
-                  _weergave = nieuweSelectie.first;
+                  _weergave = keuze;
                   _geselecteerd = null;
                 });
               },
@@ -259,13 +354,32 @@ class _RapportagePageState extends State<RapportagePage> {
             padding: const EdgeInsets.symmetric(horizontal: 8),
             child: Row(
               children: [
-                IconButton(icon: const Icon(Icons.chevron_left), onPressed: _vorigePeriode),
+                IconButton(
+                  icon: const Icon(Icons.chevron_left),
+                  onPressed: _vorigePeriode,
+                  tooltip: 'Vorige periode',
+                ),
                 Expanded(
-                  child: Center(
-                    child: Text(_periodeLabel(), style: const TextStyle(fontWeight: FontWeight.bold)),
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(8),
+                    onTap: _kiesEigenPeriode,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      child: Center(
+                        child: Text(
+                          _periodeLabel(),
+                          style: const TextStyle(fontWeight: FontWeight.bold),
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
+                    ),
                   ),
                 ),
-                IconButton(icon: const Icon(Icons.chevron_right), onPressed: _volgendePeriode),
+                IconButton(
+                  icon: const Icon(Icons.chevron_right),
+                  onPressed: _volgendePeriode,
+                  tooltip: 'Volgende periode',
+                ),
               ],
             ),
           ),
@@ -310,6 +424,13 @@ class _RapportagePageState extends State<RapportagePage> {
                     .where((naam) => _geselecteerd == null || _geselecteerd!.contains(naam))
                     .toList();
 
+                // De zoekterm filtert alleen wat je ziet, niet wat je exporteert:
+                // anders zou een openstaande zoekterm stilletjes chauffeurs uit
+                // de PDF houden die je wél had aangevinkt.
+                final zichtbareNamen = _zoekTerm.isEmpty
+                    ? namen
+                    : namen.where((naam) => naam.toLowerCase().contains(_zoekTerm)).toList();
+
                 return Column(
                   children: [
                     Padding(
@@ -336,44 +457,49 @@ class _RapportagePageState extends State<RapportagePage> {
                       ),
                     ),
                     const Divider(height: 1),
-                    Expanded(
-                      child: ListView.separated(
-                        padding: const EdgeInsets.symmetric(vertical: 4),
-                        itemCount: namen.length,
-                        separatorBuilder: (context, index) => const Divider(height: 1),
-                        itemBuilder: (context, index) {
-                          final naam = namen[index];
-                          final totaal = perChauffeur[naam]!;
-                          final uren = totaal.minuten ~/ 60;
-                          final minuten = totaal.minuten % 60;
-                          final isGeselecteerd = _geselecteerd == null || _geselecteerd!.contains(naam);
-                          return CheckboxListTile(
-                            isThreeLine: true,
-                            value: isGeselecteerd,
-                            onChanged: (waarde) {
-                              setState(() {
-                                _geselecteerd ??= Set.of(namen);
-                                if (waarde == true) {
-                                  _geselecteerd!.add(naam);
-                                } else {
-                                  _geselecteerd!.remove(naam);
-                                }
-                              });
-                            },
-                            title: Text(naam, style: const TextStyle(fontWeight: FontWeight.bold)),
-                            subtitle: Text(
-                              '${totaal.ritten} ${totaal.ritten == 1 ? 'rit' : 'ritten'} geregistreerd'
-                              '${totaal.onvolledig > 0 ? ' · ${totaal.onvolledig} onvolledig' : ''}'
-                              '\n${totaal.stopsGeladen} geladen · ${totaal.stopsGeleverd} geleverd',
-                            ),
-                            secondary: Text(
-                              '${uren}u ${minuten}m',
-                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                            ),
-                          );
-                        },
+                    if (zichtbareNamen.isEmpty)
+                      const Expanded(
+                        child: Center(child: Text('Geen chauffeur gevonden met deze naam.')),
+                      )
+                    else
+                      Expanded(
+                        child: ListView.separated(
+                          padding: const EdgeInsets.symmetric(vertical: 4),
+                          itemCount: zichtbareNamen.length,
+                          separatorBuilder: (context, index) => const Divider(height: 1),
+                          itemBuilder: (context, index) {
+                            final naam = zichtbareNamen[index];
+                            final totaal = perChauffeur[naam]!;
+                            final uren = totaal.minuten ~/ 60;
+                            final minuten = totaal.minuten % 60;
+                            final isGeselecteerd = _geselecteerd == null || _geselecteerd!.contains(naam);
+                            return CheckboxListTile(
+                              isThreeLine: true,
+                              value: isGeselecteerd,
+                              onChanged: (waarde) {
+                                setState(() {
+                                  _geselecteerd ??= Set.of(namen);
+                                  if (waarde == true) {
+                                    _geselecteerd!.add(naam);
+                                  } else {
+                                    _geselecteerd!.remove(naam);
+                                  }
+                                });
+                              },
+                              title: Text(naam, style: const TextStyle(fontWeight: FontWeight.bold)),
+                              subtitle: Text(
+                                '${totaal.ritten} ${totaal.ritten == 1 ? 'rit' : 'ritten'} geregistreerd'
+                                '${totaal.onvolledig > 0 ? ' · ${totaal.onvolledig} onvolledig' : ''}'
+                                '\n${totaal.stopsGeladen} geladen · ${totaal.stopsGeleverd} geleverd',
+                              ),
+                              secondary: Text(
+                                '${uren}u ${minuten}m',
+                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                              ),
+                            );
+                          },
+                        ),
                       ),
-                    ),
                     SafeArea(
                       top: false,
                       child: Padding(
