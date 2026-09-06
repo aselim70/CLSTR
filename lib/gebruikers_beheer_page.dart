@@ -307,15 +307,6 @@ class GebruikersBeheerPage extends StatelessWidget {
       appBar: GradientAppBar(title: const Text('Sub-accounts beheren')),
       body: Column(
         children: [
-          Container(
-            width: double.infinity,
-            color: _kOrange.withValues(alpha: 0.12),
-            padding: const EdgeInsets.all(12),
-            child: const Text(
-              'Nieuwe accounts maak je hieronder direct aan (inlog + rol + clusters in één keer) — dit hoeft niet meer apart via Firebase Console.',
-              style: TextStyle(fontSize: 12.5),
-            ),
-          ),
           Expanded(
             child: StreamBuilder<QuerySnapshot>(
               // Clusters van dit bedrijf ophalen om ID's in de lijst hieronder
